@@ -1,0 +1,45 @@
+from enum import Enum
+
+
+class StrEnum(str, Enum):
+    """Python 3.10-compatible string enum."""
+
+    def __str__(self) -> str:
+        return self.value
+
+
+class Broker(StrEnum):
+    TRADING212 = "trading212"
+    ETORO = "etoro"
+    BINANCE = "binance"
+    XTB_MANUAL = "xtb_manual"
+
+
+class ConnectionStatus(StrEnum):
+    PENDING = "pending"
+    ACTIVE = "active"
+    ERROR = "error"
+    DISABLED = "disabled"
+
+
+class AssetType(StrEnum):
+    STOCK = "stock"
+    ETF = "etf"
+    CRYPTO = "crypto"
+    CASH = "cash"
+    OTHER = "other"
+
+
+class TransactionType(StrEnum):
+    BUY = "buy"
+    SELL = "sell"
+    DIVIDEND = "dividend"
+    DEPOSIT = "deposit"
+    WITHDRAWAL = "withdrawal"
+    FEE = "fee"
+    OTHER = "other"
+
+
+class ChatRole(StrEnum):
+    USER = "user"
+    ASSISTANT = "assistant"
