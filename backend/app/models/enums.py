@@ -18,6 +18,7 @@ class Broker(StrEnum):
 class ConnectionStatus(StrEnum):
     PENDING = "pending"
     ACTIVE = "active"
+    LIMITED = "limited"
     ERROR = "error"
     DISABLED = "disabled"
 

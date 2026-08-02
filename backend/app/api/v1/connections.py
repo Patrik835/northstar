@@ -20,7 +20,8 @@ router = APIRouter()
 
 SECURITY_NOTICES = {
     Broker.TRADING212: (
-        "Use a dedicated API key. Credentials are encrypted and never displayed again."
+        "Use a dedicated read-only API key. Never enable permissions that create, "
+        "change, or cancel orders. Credentials are encrypted and never displayed again."
     ),
     Broker.ETORO: "Provide the API key and user key from your verified eToro account.",
     Broker.BINANCE: (
@@ -31,7 +32,7 @@ SECURITY_NOTICES = {
 
 TUTORIAL_URLS = {
     Broker.TRADING212: (
-        "https://helpcentre.trading212.com/hc/en-us/articles/14584770928157-How-can-I-generate-an-API-key"
+        "https://helpcentre.trading212.com/hc/en-us/articles/14584770928157-Trading-212-API-key"
     ),
     Broker.ETORO: "https://api-portal.etoro.com/getting-started/authentication",
     Broker.BINANCE: (
@@ -44,8 +45,13 @@ SETUP_STEPS = {
         "Sign in to Trading 212 and open Settings, then API (Beta).",
         "Accept the API risk notice and choose Generate API key.",
         "Give the key a recognizable name, such as Northstar.",
-        "Enable read access for account data, history, and portfolio. "
-        "Do not enable order permissions.",
+        "Enable Account data and Portfolio access.",
+        "Under History, enable Orders, Dividends, and Transactions. All three are "
+        "needed for the activity feed.",
+        "Leave every permission that creates, changes, or cancels orders disabled. "
+        "Northstar only reads your investment data.",
+        "If you restrict the key by IP address, add the public IP of the server where "
+        "Northstar runs. For local Docker use, that is your internet connection's public IP.",
         "Create the key, then copy both the API Key and API Secret. The secret is shown only once.",
     ],
     Broker.ETORO: [

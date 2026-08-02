@@ -5,7 +5,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.encryption import CredentialCipher
-from app.integrations.connectors.base import BrokerConnector, ConnectorError
+from app.integrations.connectors.base import BrokerConnector, BrokerPermissionError, ConnectorError
 from app.integrations.connectors.registry import ConnectorRegistry
 from app.models.broker import BrokerConnection
 from app.models.enums import ConnectionStatus
@@ -32,7 +32,12 @@ class ConnectionSyncService:
         try:
             await connector.validate_credentials()
             positions = await connector.fetch_positions()
-            transactions = await connector.fetch_transactions(connection.last_synced_at)
+            history_warning = None
+            try:
+                transactions = await connector.fetch_transactions(connection.last_synced_at)
+            except BrokerPermissionError as exc:
+                transactions = []
+                history_warning = str(exc)
             snapshot = await connector.fetch_snapshot(date.today())
 
             currencies = {item.currency for item in positions} | {snapshot.currency}
@@ -109,8 +114,10 @@ class ConnectionSyncService:
                     )
                 )
 
-            connection.status = ConnectionStatus.ACTIVE
-            connection.last_error = None
+            connection.status = (
+                ConnectionStatus.LIMITED if history_warning else ConnectionStatus.ACTIVE
+            )
+            connection.last_error = history_warning
             connection.last_synced_at = datetime.now(timezone.utc)
             await self.db.commit()
         except ConnectorError as exc:

@@ -48,7 +48,7 @@ progress::-webkit-progress-bar { background: #26382f; } progress::-webkit-progre
 .source-icon { width: 58px; height: 58px; display: grid; place-items: center; background: #20362c; border-radius: 12px; font-weight: 700; font-size: 1.2rem; }
 .source-icon.binance { color: #f1ba36; } .source-icon.etoro { color: #66cb92; } .source-icon.trading212 { color: #65a3ff; }
 .status { text-transform: capitalize; display: inline-block; font-size: .8rem; padding: .45rem .7rem; border-radius: 30px; background: #25342d; }
-.status.active { color: var(--accent); } .status.error { color: #ff9d9d; }
+.status.active { color: var(--accent); } .status.limited { color: #ffd27d; } .status.error { color: #ff9d9d; }
 .primary, .secondary { border: 0; border-radius: 8px; padding: .7rem 1rem; font-weight: 600; }
 .primary { background: var(--accent); color: #092016; } .primary:hover { background: #a0efc7; }
 .secondary { background: #203a2e; color: var(--accent); }
@@ -68,6 +68,7 @@ progress::-webkit-progress-bar { background: #26382f; } progress::-webkit-progre
 .connection-state { display: flex; align-items: center; flex-wrap: wrap; gap: .55rem; margin-top: .85rem; }
 .credential-hint, .sync-time { color: var(--muted); font-size: .85rem; }
 .connection-error { color: #ffb1b1; background: #351e1e; border-radius: .5rem; padding: .65rem .75rem; margin: .75rem 0; font-size: .9rem; }
+.connection-warning { color: #ffe0a3; background: #302817; border-radius: .5rem; padding: .65rem .75rem; margin: .75rem 0; font-size: .9rem; }
 .sync-time { margin: .6rem 0; }
 .connection-actions { display: flex; align-items: center; gap: .7rem; margin-top: .8rem; }
 .text-button.danger { color: #ff9d9d; }

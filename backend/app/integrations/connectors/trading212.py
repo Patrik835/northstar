@@ -61,9 +61,14 @@ class Trading212Connector(BrokerConnector):
                 "Trading 212 rejected the API key or secret. Check both values and try again."
             )
         if response.status_code == 403:
+            if "/history/" in path:
+                raise BrokerPermissionError(
+                    "Portfolio access works, but Trading 212 denied history access. "
+                    "Recent trades and dividends cannot be imported with this key."
+                )
             raise BrokerPermissionError(
-                "The Trading 212 key does not have the required account, portfolio, "
-                "or history read permissions."
+                "Trading 212 denied access to this account or portfolio request. "
+                "Check the key's IP restriction and read permissions."
             )
         if response.status_code == 429:
             raise BrokerUnavailableError(

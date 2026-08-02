@@ -26,7 +26,7 @@ export type Connection = {
   id: string;
   broker: Broker;
   credential_hint: string;
-  status: "pending" | "active" | "error" | "disabled";
+  status: "pending" | "active" | "limited" | "error" | "disabled";
   last_error: string | null;
   last_synced_at: string | null;
 };
