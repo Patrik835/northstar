@@ -46,7 +46,7 @@ progress::-webkit-progress-bar { background: #26382f; } progress::-webkit-progre
 .connection-grid { display: grid; gap: 1rem; }
 .source-card { display: grid; grid-template-columns: 58px 1fr; gap: 1.2rem; align-items: start; }
 .source-icon { width: 58px; height: 58px; display: grid; place-items: center; background: #20362c; border-radius: 12px; font-weight: 700; font-size: 1.2rem; }
-.source-icon.binance { color: #f1ba36; } .source-icon.etoro { color: #66cb92; } .source-icon.trading212 { color: #65a3ff; }
+.source-icon.binance { color: #f1ba36; } .source-icon.etoro { color: #66cb92; } .source-icon.trading212 { color: #65a3ff; } .source-icon.xtb { color: #ff7b7b; }
 .status { text-transform: capitalize; display: inline-block; font-size: .8rem; padding: .45rem .7rem; border-radius: 30px; background: #25342d; }
 .status.active { color: var(--accent); } .status.limited { color: #ffd27d; } .status.error { color: #ff9d9d; }
 .primary, .secondary { border: 0; border-radius: 8px; padding: .7rem 1rem; font-weight: 600; }
@@ -121,6 +121,7 @@ input:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px
 .compact-source-mark.trading212 { color: #9fc6ff; background: #17283a; }
 .compact-source-mark.trading212_crypto { color: #8bd6ff; background: #123044; }
 .compact-source-mark.binance { color: #f5ca62; background: #332a16; }
+.compact-source-mark.xtb { color: #ffaaaa; background: #3a1d22; }
 .connected-main { min-width: 0; }
 .connected-main > div:first-child { display: flex; flex-wrap: wrap; align-items: center; gap: .55rem; }
 .connected-main > div:first-child > strong { font: 600 .95rem "Manrope"; }
@@ -251,6 +252,7 @@ input:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px
 .source-badge.trading212 { color: #9fc6ff; background: #17283a; }
 .source-badge.binance { color: #f5ca62; background: #332a16; }
 .source-badge.etoro { color: #a4e9c2; background: #173025; }
+.source-badge.xtb { color: #ffaaaa; background: #3a1d22; }
 .value-cell { display: grid; gap: .16rem; text-align: right; font-variant-numeric: tabular-nums; }
 .value-cell strong { font: 600 .95rem "Manrope"; }
 .value-cell small { color: var(--muted); font-size: .7rem; }
@@ -269,7 +271,7 @@ input:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px
 .source-detail header small { color: var(--muted); }
 .source-detail header > strong { font: 600 .95rem "Manrope"; }
 .source-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 8px rgba(131, 229, 181, .35); }
-.source-dot.trading212 { background: #65a3ff; }.source-dot.binance { background: #f1ba36; }
+.source-dot.trading212 { background: #65a3ff; }.source-dot.binance { background: #f1ba36; }.source-dot.xtb { background: #ff7b7b; }
 .source-detail dl { display: grid; grid-template-columns: 1fr 1fr; gap: .8rem 1rem; margin: .9rem 0; }
 .source-detail dl > div { min-width: 0; display: grid; gap: .18rem; }
 .source-detail dt { color: var(--muted); font-size: .67rem; text-transform: uppercase; letter-spacing: .06em; }

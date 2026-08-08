@@ -2,7 +2,8 @@
 
 Northstar is a self-hosted, multi-user investment operating system for EU investors.
 It starts by consolidating stocks, ETFs, cash, and crypto across Trading 212, eToro,
-Binance, and the provider-specific Trading 212 Crypto CSV import. The longer-term
+Binance, XTB native statement imports, and the provider-specific Trading 212 Crypto CSV
+import. The longer-term
 product expands to manually valued real estate and other diversified investments while
 keeping portfolio data private, traceable, and understandable.
 
@@ -13,7 +14,7 @@ manual refresh, persisted ECB currency conversion, observable synchronization ru
 rate-limit-aware retry/backoff, visible connection freshness, and
 the basic aggregated dashboard are implemented. Canonical instruments now combine equivalent holdings across
 brokers, while a searchable holdings view exposes consolidated stock/ETF and crypto
-positions, subtle Trading 212/eToro reported P/L with coverage labels, and each
+positions, subtle Trading 212/eToro/XTB reported P/L with coverage labels, and each
 platform's original detail. Holdings also show their latest valuation time and only
 surface stale, estimated, or materially unreconciled data when attention is needed.
 Binance and eToro both have automated
@@ -113,6 +114,28 @@ account. Northstar therefore presents Trading 212 Crypto as a CSV import source:
 The import validates before commit, reconstructs crypto quantities and moving-average EUR
 cost, and values supported assets with public Binance Spot prices. If a live price is not
 available, the UI explicitly reports that the last imported trade price was used.
+
+## XTB imports
+
+XTB [discontinued its public API on 14 March 2025](https://intercom-help.eu/xtb/en/articles/3868-does-xtb-offer-investment-automation-tools),
+so Northstar uses xStation's native reports without asking for login credentials:
+
+1. Sign in to xStation on the web and export the current **Open positions** report from
+   the Orders view.
+2. Export the full available **Closed positions** and **Cash operations** history.
+3. In Northstar, open **Connections → XTB** and select the CSV or XLSX reports together.
+4. Import newer or overlapping reports later; provider IDs and stable fingerprints prevent
+   duplicate activity.
+
+Current reports populate stock/ETF quantities, average prices, values, explicit cash
+balances, broker-reported P/L, valuation dates, and canonical ISIN/symbol aliases. History
+reports add buys, sells, dividends, deposits, withdrawals, and fees where the export exposes
+them. Uploading history alone never clears the last current holdings. XTB documents its
+[open-position report](https://www.xtb.com/int/help-center/our-platforms-5-1/open-positions-and-pending-orders-1)
+and [account-history export](https://www.xtb.com/en/help-center/our-platforms/history-on-the-xstation-platform);
+the parser accepts both current CSV and Excel variants, discovers the relevant sheet, and
+works around the incorrect `A1:A1` dimensions present in native XTB workbooks. CFDs and
+other non-stock/ETF rows are skipped with a visible warning.
 
 ## Development workflows
 
@@ -236,5 +259,5 @@ available at `http://localhost:8000/docs`.
 - Transient safe provider reads use at most three attempts with exponential backoff.
   Standard `Retry-After`, Trading 212 reset timestamps, and Binance's `418`/`429`
   responses are handled without exposing provider response bodies to users.
-- XTB remains unsupported until an official API or a dedicated low-effort import is
-  deliberately added.
+- XTB is a manual native-report source because its API is discontinued. CSV/XLSX imports
+  retain the report valuation time and are not included in automatic **Sync all** runs.

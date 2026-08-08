@@ -10,6 +10,7 @@ const sourceLabels: Record<string, string> = {
   trading212_crypto: "Trading 212 Crypto",
   etoro: "eToro",
   binance: "Binance",
+  xtb: "XTB",
 };
 
 export function DashboardPage() {

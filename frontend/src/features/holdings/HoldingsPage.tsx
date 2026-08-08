@@ -21,6 +21,7 @@ const brokerLabels: Record<Broker, string> = {
   trading212_crypto: "Trading 212 Crypto",
   etoro: "eToro",
   binance: "Binance",
+  xtb: "XTB",
 };
 const assetLabels: Record<AssetType, string> = {
   stock: "Stock",
@@ -77,6 +78,7 @@ function timestamp(value: string | null) {
 function valuationLabel(source: HoldingSource) {
   if (source.valuation_source === "last_trade") return "Estimated from last trade";
   if (source.valuation_source === "market") return "Market price";
+  if (source.valuation_source === "statement") return "Imported statement";
   return "Provider value";
 }
 

@@ -1,7 +1,8 @@
 # Northstar Investment OS — Requirements Refresh and Kanban Roadmap
 
-> Updated 2026-08-08: requirements/documentation and the first Binance/eToro connector
-> slices are complete. Items explicitly marked partial still need follow-up tickets.
+> Updated 2026-08-08: the stock/ETF/crypto foundation now includes Trading 212,
+> Binance, eToro, Trading 212 Crypto files, and native XTB statement imports. Items
+> explicitly marked partial still need follow-up tickets.
 
 ## Summary
 
@@ -54,13 +55,16 @@ This direction matches the strongest capabilities offered by mature trackers: ge
 - Searchable holdings UI with consolidated stock/ETF and crypto views, per-platform
   filtering, aggregated broker-reported P/L, and expandable per-source details.
 - Trading 212 Crypto CSV imports with validation, overlap-safe deduplication, transaction-backed balance reconstruction, current Binance pricing, and explicit valuation fallback warnings.
+- Native XTB CSV/XLSX imports for current stock/ETF holdings, explicit cash, P/L, closed
+  positions, cash operations, and fees, with canonical aliases, EUR conversion, valuation
+  provenance, overlap-safe deduplication, and history-only preservation.
 - Compact connected-source management plus a searchable/filterable source directory designed to accommodate additional brokers and import types.
 - Connection setup guides, encrypted credential storage, masked hints, secure reconnect,
   and deletion.
 - Goals, risk tolerance, and time-horizon profile.
 - Basic dashboard total, position count, and allocation-by-source API/UI.
 - Core database tables for positions, transactions, snapshots, news, recommendations, and chat history.
-- Fifty-one backend tests currently pass, including crypto CSV parsing/reconstruction,
+- Sixty backend tests currently pass, including crypto/XTB file parsing and import,
   canonical matching, holdings aggregation, sync-run state handling, and mocked Binance,
   eToro, ECB, and public crypto-price contracts; frontend lint and the production build
   also pass.
@@ -141,6 +145,9 @@ All implementation tickets should target approximately 1–3 working days and in
 19. [x] Import current eToro positions, cash, value, and broker-reported P&L where exposed, retaining provider-currency and EUR values.
 20. [x] Store eToro daily/current valuations and reliable month-end snapshots.
 21. [x] Support the native Trading 212 Crypto CSV with validation, atomic persistence, and repeat-import deduplication. Generic CSV mapping is intentionally out of scope.
+21a. [x] Support and validate XTB's native three-sheet CSV/XLSX reports for current
+     positions, P/L, and activity; exclude CFDs and preserve current holdings on
+     history-only imports.
 22. [removed] Do not provide generic transaction templates; supported imports should accept the provider's native export without user reformatting.
 23. [moved] Reserve manual entry for the Phase 4 diversified-asset model in item 63, beginning with real estate rather than manually maintained stocks or crypto.
 24. [x] Add automatic source-total reconciliation where a live provider exposes an independent account total, warning only beyond both 3% and EUR 5. Providers without an independent total remain silent; Trading 212 Crypto overlap deduplication stays automatic.

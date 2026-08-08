@@ -65,13 +65,17 @@ class ConnectionGuide(BaseModel):
     tutorial_url: str
 
 
-class CryptoCsvImportResult(BaseModel):
+class StatementImportResult(BaseModel):
     connection: ConnectionRead
     rows_read: int
     transactions_added: int
     duplicates_skipped: int
     positions_imported: int
     warnings: list[str]
+
+
+class CryptoCsvImportResult(StatementImportResult):
+    """Retain the existing Trading 212 Crypto response-model name."""
 
 
 class SyncRunRead(BaseModel):

@@ -13,6 +13,7 @@ class Broker(StrEnum):
     TRADING212_CRYPTO = "trading212_crypto"
     ETORO = "etoro"
     BINANCE = "binance"
+    XTB = "xtb"
 
 
 class ConnectionStatus(StrEnum):

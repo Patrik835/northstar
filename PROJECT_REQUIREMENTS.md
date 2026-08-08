@@ -61,15 +61,16 @@ required outcome of each product phase.
 
 ### Phase 1 — Trustworthy Stock, ETF, and Crypto Core
 
-- Production-ready Trading 212, Binance Spot, and eToro read-only connections.
+- Production-ready Trading 212, Binance Spot, and eToro read-only connections, plus a
+  native XTB statement-import connector because XTB no longer offers a public API.
 - Periodic position/value synchronization every 60–120 minutes, defaulting to 120
   minutes, plus user-triggered refresh.
 - Current eToro positions, cash, value, and broker-reported P&L plus retained month-end snapshots.
 - Canonical instruments so the same holding is aggregated correctly across sources.
 - Dated ECB FX rates and EUR conversion while preserving original currencies.
 - Complete, resumable transaction imports with automatic deduplication and reconciliation.
-- Provider-specific CSV import only where a valuable account cannot be connected through
-  an official supported API, initially Trading 212 Crypto.
+- Provider-specific file import only where a valuable account cannot be connected through
+  an official supported API, initially Trading 212 Crypto and XTB.
 - Visible freshness, sync progress, partial-import warnings, and safe error recovery.
 
 ### Phase 2 — Portfolio Analytics and Dashboard
@@ -259,9 +260,9 @@ errors; provider-specific payloads do not leak into route handlers or the fronte
 - Refresh with other live connections and retain a reliable last-trading-day snapshot
   for each month.
 
-### 6.5 Provider-Specific CSV Data
+### 6.5 Provider-Specific File Data
 
-- CSV is used selectively when an important provider account has no usable official API;
+- File import is used selectively when an important provider account has no usable official API;
   Northstar does not ask users to maintain generic stock or crypto records manually.
 - Trading 212 Crypto uses its official History CSV export because Trading 212's Public API
   currently supports only Invest and Stocks ISA accounts. Imports reconstruct crypto
@@ -269,10 +270,16 @@ errors; provider-specific payloads do not leak into route handlers or the fronte
   last-trade-price valuation fallbacks.
 - Each supported CSV source owns its mapping, validation, duplicate detection, and atomic
   import workflow so users can upload the provider's native export without reformatting it.
+- XTB discontinued its public API on 14 March 2025. Its connector therefore accepts native
+  xStation CSV and XLSX reports for current positions, closed positions, and cash operations.
+  It retains current quantities, average prices, values, explicit cash balances, and
+  broker-reported P/L; maps verified stock/ETF types and ISINs into canonical instruments;
+  converts values to EUR; and deduplicates overlapping activity. A history-only upload adds
+  activity without erasing the last imported current-position snapshot. CFDs and other
+  non-stock/ETF products are intentionally skipped with a visible warning.
 - Manual entry is reserved for Phase 4 assets that are naturally manually valued, starting
   with real estate. Unsupported stock/ETF/crypto brokers are not represented through
   generic manual holdings or transaction forms.
-- XTB remains excluded until an official API or a dedicated low-effort import is added.
 
 ### 6.6 Synchronization Policy
 
@@ -428,12 +435,12 @@ Status meanings:
 | Trading 212 current positions, cash, recent activity, and snapshot | Partial | Live connector, canonical instruments with provider-verified stock/ETF types, per-position and snapshot unrealized P/L, EUR conversion, source-total reconciliation, rate-limit-aware retry, paginated orders/dividends/cash history, resumable per-stream cursors, and idempotency coverage work. Real-account backfill verification remains. |
 | Binance Spot connector | Partial | Signed read-only authentication, Spot balances, EUR valuation, discoverable Spot-pair trades, trade/withdrawal fees, completed deposits/withdrawals, asset distributions, stable deduplication, one-time upgrade backfill, snapshots, refresh/scheduling, and mocked contracts exist. Real-account reconciliation and Binance's symbol-constrained fully sold-out/full-history gap remain. |
 | eToro periodic connector and month-end history | Partial | Public API authentication, aggregate positions/cash/copy value, instrument metadata, dedicated Real-account P&L enrichment, provider/EUR P&L persistence on positions and snapshots, source-total reconciliation, closed-trade history, valuations, manual/periodic/month-end sync, and mocked contracts exist. Broader history reconciliation and exact coverage of every eToro product remain. |
-| Provider-specific CSV data | Complete | Trading 212 Crypto CSV upload, validation, duplicate protection, transaction storage, holdings reconstruction, current-price/fallback valuation, snapshots, and repeat-import UI work. Generic stock/crypto CSV and manual entry are intentionally out of scope. |
-| Canonical instruments and broker aliases | Complete | Global instruments retain ISIN/symbol identity while provider aliases preserve Trading 212 Invest, Trading 212 Crypto, Binance, and eToro identifiers. Sync/import resolution combines matching securities and crypto across platforms. |
+| Provider-specific file data | Complete | Trading 212 Crypto CSV and native XTB CSV/XLSX imports validate atomically, prevent duplicate activity, preserve valuation provenance, and support repeat imports. XTB's native three-sheet workbook is verified for current stock/ETF positions, P/L, closed-position activity, cash operations, fees/tax, canonical metadata, and history-only preservation. Generic stock/crypto files and manual entry remain intentionally out of scope. |
+| Canonical instruments and broker aliases | Complete | Global instruments retain ISIN/symbol identity while provider aliases preserve Trading 212 Invest, Trading 212 Crypto, Binance, eToro, and XTB identifiers. Sync/import resolution combines matching securities and crypto across platforms. |
 | Automatic data-quality and reconciliation | Partial | Trading 212 and eToro synchronization silently compare imported holdings against independently reported provider totals and warn only beyond both 3% and EUR 5. Binance has no independent comparison total; Trading 212 Crypto overlap deduplication remains automatic. Broader transaction-level reconciliation remains. |
 | ECB FX conversion and market-data cache | Complete | ECB working-day rates are fetched, persisted by publication date, cached in-process and across processes, looked up by date, converted through EUR, and backed by the newest stored rate set during temporary ECB failures. A daily refresh supplements on-demand fetching. |
 | Scheduled synchronization | Partial | APScheduler refreshes Trading 212, Binance, and eToro every 120 minutes by default and adds eToro month-end and daily ECB runs. Connection syncs persist running/success/partial/error status, triggers, counts, timestamps, and safe details. Safe GET requests use bounded exponential backoff for transient failures and honor provider cooldown headers; stuck-run recovery and distributed-worker safety remain. |
-| Connection freshness visibility | Complete | Connection cards distinguish fresh, stale, and never-synchronized sources, show the last successful sync/import, preserve it across failures, and show the latest failed attempt. Live sources become stale after two configured synchronization intervals. |
+| Connection freshness visibility | Complete | Connection cards distinguish fresh, stale, and never-synchronized sources, show the last successful sync/import, preserve it across failures, and show the latest failed attempt. Live sources become stale after two configured synchronization intervals; XTB and Trading 212 Crypto remain explicitly labelled as imported statements. |
 | Goals, risk tolerance, and time horizon | Complete | Profile API and UI are functional. |
 | Basic portfolio summary | Partial | EUR total, position count, and source allocation work; the full dashboard does not. |
 | Consolidated and per-platform holdings | Partial | A searchable responsive holdings page groups stocks/ETFs, crypto, cash, and other assets; supports value/P&L sorting; shows valuation time plus restrained stale/estimated/reconciliation states; and preserves source-native value and P/L details. Independently calculated gain/loss, activity, and dedicated instrument routes remain. |

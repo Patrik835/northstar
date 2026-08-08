@@ -4,7 +4,7 @@ import type {
   Broker,
   Connection,
   ConnectionGuide,
-  CryptoCsvImportResult,
+  StatementImportResult,
 } from "../../api/types";
 
 const names: Record<Broker, string> = {
@@ -12,6 +12,7 @@ const names: Record<Broker, string> = {
   trading212_crypto: "Trading 212 Crypto",
   etoro: "eToro",
   binance: "Binance",
+  xtb: "XTB",
 };
 
 type SourceFilter = "all" | "connected" | "api" | "csv";
@@ -20,6 +21,7 @@ function sourceMark(broker: Broker) {
   if (broker === "trading212") return "T2";
   if (broker === "trading212_crypto") return "2C";
   if (broker === "binance") return "BN";
+  if (broker === "xtb") return "XT";
   return "eT";
 }
 
@@ -153,26 +155,45 @@ export function ConnectionsPage() {
     event.preventDefault();
     if (!selected) return;
     const form = new FormData(event.currentTarget);
-    const file = form.get("file");
-    if (!(file instanceof File) || !file.size) {
-      setMessage("Choose the Trading 212 Crypto CSV export first.");
+    const files = form
+      .getAll("file")
+      .filter((file): file is File => file instanceof File && file.size > 0);
+    if (!files.length) {
+      setMessage(
+        selected.broker === "xtb"
+          ? "Choose at least one XTB CSV or Excel report first."
+          : "Choose the Trading 212 Crypto CSV export first.",
+      );
       return;
     }
     setBusyId(selected.broker);
     try {
-      const result = await api<CryptoCsvImportResult>(
-        "/connections/imports/trading212-crypto",
+      const result = await api<StatementImportResult>(
+        selected.broker === "xtb"
+          ? "/connections/imports/xtb"
+          : "/connections/imports/trading212-crypto",
         { method: "POST", body: form },
       );
       closeModal();
+      const holdingLabel = selected.broker === "xtb" ? "holding" : "crypto holding";
       setMessage(
-        `Imported ${result.positions_imported} crypto holding${
+        `Imported ${result.positions_imported} ${holdingLabel}${
           result.positions_imported === 1 ? "" : "s"
         } and ${result.transactions_added} new transaction${
           result.transactions_added === 1 ? "" : "s"
         }. ${result.duplicates_skipped} duplicate${
           result.duplicates_skipped === 1 ? " was" : "s were"
-        } skipped.`,
+        } skipped.${
+          result.warnings.length
+            ? ` ${result.warnings[0]}${
+                result.warnings.length > 1
+                  ? ` (${result.warnings.length - 1} more warning${
+                      result.warnings.length === 2 ? "" : "s"
+                    })`
+                  : ""
+              }`
+            : ""
+        }`,
       );
       await refresh();
     } catch (reason) {
@@ -320,7 +341,7 @@ export function ConnectionsPage() {
                     </div>
                     <small>
                       {isCsv
-                        ? "CSV import"
+                        ? "File import"
                         : `Credential ${connection.credential_hint.replace("••••", "ending ")}`}
                     </small>
                     <div className="connection-timestamps">
@@ -350,7 +371,7 @@ export function ConnectionsPage() {
                         disabled={isBusy}
                         onClick={() => guide && openSource(guide)}
                       >
-                        Import newer CSV
+                        Import newer file
                       </button>
                     ) : (
                       <button
@@ -466,7 +487,7 @@ export function ConnectionsPage() {
                     </div>
                     <p>{guide.description}</p>
                     <small>
-                      {guide.connection_type === "api" ? "Automatic · 1–2 hours" : "Manual CSV"}
+                      {guide.connection_type === "api" ? "Automatic · 1–2 hours" : "Manual import"}
                     </small>
                   </div>
                   {current && guide.connection_type === "api" ? (
@@ -563,9 +584,27 @@ export function ConnectionsPage() {
             {selected.connection_type === "csv" ? (
               <label className="csv-dropzone">
                 <span className="upload-mark">↑</span>
-                <strong>Select Trading 212 Crypto CSV</strong>
-                <small>CSV only · maximum 10 MB · overlapping exports are safe</small>
-                <input name="file" type="file" accept=".csv,text/csv" required />
+                <strong>
+                  {selected.broker === "xtb"
+                    ? "Select XTB reports"
+                    : "Select Trading 212 Crypto CSV"}
+                </strong>
+                <small>
+                  {selected.broker === "xtb"
+                    ? "CSV or XLSX · select current positions and history together · overlapping reports are safe"
+                    : "CSV only · maximum 10 MB · overlapping exports are safe"}
+                </small>
+                <input
+                  name="file"
+                  type="file"
+                  accept={
+                    selected.broker === "xtb"
+                      ? ".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                      : ".csv,text/csv"
+                  }
+                  multiple={selected.broker === "xtb"}
+                  required
+                />
               </label>
             ) : (
               <div className="credential-fields">

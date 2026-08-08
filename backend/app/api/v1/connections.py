@@ -17,6 +17,7 @@ from app.schemas.connection import (
     ConnectionGuide,
     ConnectionRead,
     CryptoCsvImportResult,
+    StatementImportResult,
     SyncRunRead,
 )
 from app.services.connection_sync import ConnectionSyncService
@@ -29,6 +30,12 @@ from app.services.trading212_crypto_import import (
     MAX_CSV_BYTES,
     CryptoCsvImportError,
     Trading212CryptoImportService,
+)
+from app.services.xtb_import import (
+    MAX_XTB_FILE_BYTES,
+    XtbImportError,
+    XtbImportService,
+    XtbUpload,
 )
 
 router = APIRouter()
@@ -157,7 +164,32 @@ async def guides(user: CurrentUser) -> list[ConnectionGuide]:
                 "https://helpcentre.trading212.com/hc/en-us/articles/"
                 "30721201341213-What-are-the-Crypto-account-views"
             ),
-        )
+        ),
+        ConnectionGuide(
+            broker=Broker.XTB,
+            connection_type="csv",
+            category="Broker",
+            description=(
+                "Import XTB stock and ETF positions, P/L, and account activity from "
+                "xStation CSV or Excel reports. Overlapping reports are safe."
+            ),
+            credential_fields=[],
+            credential_labels={},
+            security_notice=(
+                "XTB discontinued its public API. Northstar reads only the reports you "
+                "select and never asks for XTB login credentials."
+            ),
+            setup_steps=[
+                "Sign in to xStation on the web.",
+                "Export the current Open positions report from the Orders view.",
+                "Export Closed positions and Cash operations for the full available history.",
+                "Upload the CSV or XLSX reports together. Later overlapping reports are safe.",
+            ],
+            tutorial_url=(
+                "https://www.xtb.com/int/help-center/our-platforms-5-1/"
+                "open-positions-and-pending-orders-1"
+            ),
+        ),
     ]
 
 
@@ -200,6 +232,40 @@ async def import_trading212_crypto(
         await db.rollback()
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
     return CryptoCsvImportResult(
+        connection=_connection_read(result.connection),
+        rows_read=result.rows_read,
+        transactions_added=result.transactions_added,
+        duplicates_skipped=result.duplicates_skipped,
+        positions_imported=result.positions_imported,
+        warnings=result.warnings,
+    )
+
+
+@router.post("/imports/xtb", response_model=StatementImportResult)
+async def import_xtb(
+    user: CurrentUser,
+    db: DbSession,
+    files: Annotated[list[UploadFile], File(alias="file")],
+) -> StatementImportResult:
+    if not files:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Select an XTB report")
+    uploads: list[XtbUpload] = []
+    for file in files:
+        filename = file.filename or ""
+        if not filename.lower().endswith((".csv", ".xlsx")):
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                "XTB imports support CSV and XLSX files",
+            )
+        uploads.append(
+            XtbUpload(filename=filename, content=await file.read(MAX_XTB_FILE_BYTES + 1))
+        )
+    try:
+        result = await XtbImportService(db, CredentialCipher()).import_files(user.id, uploads)
+    except XtbImportError as exc:
+        await db.rollback()
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+    return StatementImportResult(
         connection=_connection_read(result.connection),
         rows_read=result.rows_read,
         transactions_added=result.transactions_added,
@@ -261,6 +327,11 @@ async def sync_connection(
     connection = await ConnectionRepository(db).owned(connection_id, user.id)
     if not connection:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Connection not found")
+    if connection.broker not in CREDENTIAL_FIELDS:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "This source is updated by importing a new statement file",
+        )
     synced = await ConnectionSyncService(db, CredentialCipher()).sync(
         connection, trigger=SyncTrigger.MANUAL
     )

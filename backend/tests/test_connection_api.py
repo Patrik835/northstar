@@ -41,6 +41,7 @@ async def test_sync_all_only_synchronizes_enabled_api_connections(monkeypatch: A
     connections = [
         _connection(user_id, Broker.TRADING212),
         _connection(user_id, Broker.TRADING212_CRYPTO),
+        _connection(user_id, Broker.XTB),
         _connection(user_id, Broker.BINANCE, ConnectionStatus.DISABLED),
         _connection(user_id, Broker.ETORO),
     ]

@@ -24,7 +24,8 @@ export type Broker =
   | "trading212"
   | "trading212_crypto"
   | "etoro"
-  | "binance";
+  | "binance"
+  | "xtb";
 
 export type Connection = {
   id: string;
@@ -52,7 +53,7 @@ export type ConnectionGuide = {
   tutorial_url: string;
 };
 
-export type CryptoCsvImportResult = {
+export type StatementImportResult = {
   connection: Connection;
   rows_read: number;
   transactions_added: number;
