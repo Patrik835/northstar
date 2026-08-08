@@ -2,6 +2,7 @@ import re
 import uuid
 from decimal import ROUND_HALF_UP, Decimal
 
+from app.core.config import get_settings
 from app.models.enums import AssetType
 from app.repositories.portfolio import PortfolioRepository
 from app.schemas.portfolio import (
@@ -10,7 +11,9 @@ from app.schemas.portfolio import (
     Holding,
     HoldingSource,
     HoldingsResponse,
+    ReconciliationWarning,
 )
+from app.services.freshness import connection_freshness
 
 
 def percentage(value: Decimal, total: Decimal) -> Decimal:
@@ -47,8 +50,17 @@ def company_identity(name: str) -> tuple[str, str] | None:
 
 
 class PortfolioService:
-    def __init__(self, repository: PortfolioRepository) -> None:
+    def __init__(
+        self,
+        repository: PortfolioRepository,
+        sync_interval_minutes: int | None = None,
+    ) -> None:
         self.repository = repository
+        self.sync_interval_minutes = (
+            sync_interval_minutes
+            if sync_interval_minutes is not None
+            else get_settings().portfolio_sync_minutes
+        )
 
     async def dashboard(self, user_id: uuid.UUID) -> DashboardSummary:
         total = await self.repository.total(user_id)
@@ -78,6 +90,7 @@ class PortfolioService:
 
     async def holdings(self, user_id: uuid.UUID) -> HoldingsResponse:
         rows = await self.repository.holding_positions(user_id)
+        quality_rows = await self.repository.connection_quality(user_id)
         total = sum((row.position.current_value_eur for row in rows), Decimal(0))
         reported_pnl_rows = [
             row.position.reported_pnl_eur
@@ -135,8 +148,14 @@ class PortfolioService:
                 for row in instrument_rows
                 if row.position.reported_pnl_eur is not None
             ]
-            sources = [
-                HoldingSource(
+            sources: list[HoldingSource] = []
+            for row in sorted(instrument_rows, key=lambda item: item.broker.value):
+                freshness = connection_freshness(
+                    row.broker, row.last_synced_at, self.sync_interval_minutes
+                )
+                valued_at = getattr(row.position, "valued_at", None) or row.last_synced_at
+                sources.append(
+                    HoldingSource(
                     broker=row.broker,
                     connection_id=row.connection_id,
                     provider_instrument_id=row.position.instrument_id,
@@ -165,9 +184,24 @@ class PortfolioService:
                     reported_pnl_eur=row.position.reported_pnl_eur,
                     instrument_percentage=percentage(row.position.current_value_eur, value),
                     last_synced_at=row.last_synced_at,
+                    valued_at=valued_at,
+                    valuation_source=(
+                        getattr(row.position, "valuation_source", None) or "provider"
+                    ),
+                    is_estimated=bool(
+                        getattr(row.position, "is_estimated", False)
+                    ),
+                    freshness_status="stale" if freshness.is_stale else "fresh",
+                    is_stale=freshness.is_stale,
+                    )
                 )
-                for row in sorted(instrument_rows, key=lambda item: item.broker.value)
-            ]
+            holding_as_of = max(
+                (source.valued_at for source in sources if source.valued_at is not None),
+                default=None,
+            )
+            stale_connection_ids = {
+                source.connection_id for source in sources if source.is_stale
+            }
             holdings.append(
                 Holding(
                     key=key,
@@ -204,6 +238,10 @@ class PortfolioService:
                     reported_pnl_source_count=len(instrument_pnl_rows),
                     portfolio_percentage=percentage(value, total),
                     source_count=len(sources),
+                    as_of=holding_as_of,
+                    is_stale=bool(stale_connection_ids),
+                    stale_source_count=len(stale_connection_ids),
+                    has_estimated_value=any(source.is_estimated for source in sources),
                     sources=sources,
                 )
             )
@@ -214,6 +252,24 @@ class PortfolioService:
                 source_values.get(row.broker, Decimal(0))
                 + row.position.current_value_eur
             )
+        all_sources = [source for holding in holdings for source in holding.sources]
+        portfolio_as_of = max(
+            (source.valued_at for source in all_sources if source.valued_at is not None),
+            default=None,
+        )
+        stale_connection_ids = {
+            source.connection_id for source in all_sources if source.is_stale
+        }
+        reconciliation_warnings: dict[uuid.UUID, ReconciliationWarning] = {}
+        for quality in quality_rows:
+            if quality.reconciliation_warning:
+                reconciliation_warnings[quality.connection_id] = ReconciliationWarning(
+                    broker=quality.broker,
+                    connection_id=quality.connection_id,
+                    difference_percent=quality.reconciliation_difference_percent,
+                    checked_at=quality.reconciliation_checked_at,
+                    message=quality.reconciliation_warning,
+                )
         return HoldingsResponse(
             total_value_eur=total,
             reported_pnl_eur=(
@@ -223,6 +279,10 @@ class PortfolioService:
             instrument_count=len(holdings),
             position_count=len(rows),
             unmatched_positions=sum(row.instrument is None for row in rows),
+            as_of=portfolio_as_of,
+            stale_source_count=len(stale_connection_ids),
+            estimated_position_count=sum(source.is_estimated for source in all_sources),
+            reconciliation_warnings=list(reconciliation_warnings.values()),
             sources=[
                 AllocationItem(
                     label=broker.value,

@@ -149,6 +149,7 @@ async def test_etoro_maps_current_portfolio_and_history() -> None:
     assert activity[0].value == Decimal("600")
     assert activity[1].transaction_type is TransactionType.FEE
     assert snapshot.total_value == Decimal("850")
+    assert snapshot.independent_total is True
     assert snapshot.currency == "USD"
     assert snapshot.reported_pnl == Decimal("65")
 

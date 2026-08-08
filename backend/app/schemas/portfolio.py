@@ -48,6 +48,11 @@ class HoldingSource(BaseModel):
     reported_pnl_eur: Decimal | None
     instrument_percentage: Decimal
     last_synced_at: datetime | None
+    valued_at: datetime | None
+    valuation_source: str
+    is_estimated: bool
+    freshness_status: Literal["fresh", "stale"]
+    is_stale: bool
 
 
 class Holding(BaseModel):
@@ -66,7 +71,19 @@ class Holding(BaseModel):
     reported_pnl_source_count: int
     portfolio_percentage: Decimal
     source_count: int
+    as_of: datetime | None
+    is_stale: bool
+    stale_source_count: int
+    has_estimated_value: bool
     sources: list[HoldingSource]
+
+
+class ReconciliationWarning(BaseModel):
+    broker: Broker
+    connection_id: uuid.UUID
+    difference_percent: Decimal | None
+    checked_at: datetime | None
+    message: str
 
 
 class HoldingsResponse(BaseModel):
@@ -77,5 +94,9 @@ class HoldingsResponse(BaseModel):
     instrument_count: int
     position_count: int
     unmatched_positions: int
+    as_of: datetime | None
+    stale_source_count: int
+    estimated_position_count: int
+    reconciliation_warnings: list[ReconciliationWarning]
     sources: list[AllocationItem]
     holdings: list[Holding]

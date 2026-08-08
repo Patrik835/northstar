@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
@@ -7,7 +7,7 @@ import pytest
 from app.models.enums import AssetType, Broker
 from app.models.instrument import Instrument
 from app.models.portfolio import Position
-from app.repositories.portfolio import HoldingPositionRow
+from app.repositories.portfolio import ConnectionQualityRow, HoldingPositionRow
 from app.services.portfolio import PortfolioService, company_identity
 
 
@@ -17,6 +17,21 @@ class HoldingsRepository:
 
     async def holding_positions(self, user_id: uuid.UUID) -> list[HoldingPositionRow]:
         return self.rows
+
+    async def connection_quality(self, user_id: uuid.UUID) -> list[ConnectionQualityRow]:
+        unique = {row.connection_id: row for row in self.rows}
+        return [
+            ConnectionQualityRow(
+                broker=row.broker,
+                connection_id=row.connection_id,
+                reconciliation_difference_percent=(
+                    row.reconciliation_difference_percent
+                ),
+                reconciliation_checked_at=row.reconciliation_checked_at,
+                reconciliation_warning=row.reconciliation_warning,
+            )
+            for row in unique.values()
+        ]
 
 
 def _row(
@@ -28,6 +43,9 @@ def _row(
     quantity: str,
     value: str,
     reported_pnl: str | None = None,
+    synced_at: datetime | None = None,
+    is_estimated: bool = False,
+    reconciliation_warning: str | None = None,
 ) -> HoldingPositionRow:
     connection_id = uuid.uuid4()
     position = Position(
@@ -45,13 +63,23 @@ def _row(
         current_value_eur=Decimal(value),
         reported_pnl=Decimal(reported_pnl) if reported_pnl is not None else None,
         reported_pnl_eur=Decimal(reported_pnl) if reported_pnl is not None else None,
+        valued_at=synced_at or datetime.now(timezone.utc),
+        valuation_source="last_trade" if is_estimated else "provider",
+        is_estimated=is_estimated,
     )
     return HoldingPositionRow(
         position=position,
         broker=broker,
         connection_id=connection_id,
-        last_synced_at=datetime.now(timezone.utc),
+        last_synced_at=synced_at or datetime.now(timezone.utc),
         instrument=instrument,
+        reconciliation_difference_percent=(
+            Decimal("5") if reconciliation_warning else None
+        ),
+        reconciliation_checked_at=(
+            datetime.now(timezone.utc) if reconciliation_warning else None
+        ),
+        reconciliation_warning=reconciliation_warning,
     )
 
 
@@ -203,3 +231,47 @@ async def test_holdings_groups_share_classes_as_one_company_exposure() -> None:
     assert {
         source.canonical_isin for source in holding.sources
     } == {None, "US02079K3059"}
+
+
+@pytest.mark.asyncio
+async def test_holdings_exposes_stale_estimated_and_reconciliation_status() -> None:
+    instrument = Instrument(
+        id=uuid.uuid4(),
+        identity_key="CRYPTO:BTC",
+        canonical_symbol="BTC",
+        name="Bitcoin",
+        asset_type=AssetType.CRYPTO,
+    )
+    stale_at = datetime.now(timezone.utc) - timedelta(hours=5)
+    warning = (
+        "Trading 212 holdings differ from its reported account total by 5.0%. "
+        "The latest holdings were preserved."
+    )
+    rows = [
+        _row(
+            Broker.TRADING212,
+            instrument,
+            provider_id="BTC",
+            ticker="BTC",
+            quantity="1",
+            value="100",
+            synced_at=stale_at,
+            is_estimated=True,
+            reconciliation_warning=warning,
+        )
+    ]
+
+    result = await PortfolioService(
+        HoldingsRepository(rows), sync_interval_minutes=120
+    ).holdings(uuid.uuid4())
+
+    assert result.as_of == stale_at
+    assert result.stale_source_count == 1
+    assert result.estimated_position_count == 1
+    assert len(result.reconciliation_warnings) == 1
+    assert result.reconciliation_warnings[0].message == warning
+    holding = result.holdings[0]
+    assert holding.is_stale is True
+    assert holding.has_estimated_value is True
+    assert holding.sources[0].freshness_status == "stale"
+    assert holding.sources[0].valuation_source == "last_trade"

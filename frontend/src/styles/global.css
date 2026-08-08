@@ -175,6 +175,13 @@ input:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px
 .holdings-header { margin-bottom: 1.35rem; }
 .page-intro { color: var(--muted); max-width: 620px; margin-bottom: 0; }
 .holdings-warning { color: #ffe0a3; background: #2d2617; border: 1px solid #554624; border-radius: 10px; padding: .8rem 1rem; font-size: .88rem; }
+.reconciliation-warning strong { color: #ffdfa0; }
+.holdings-as-of { display: flex; align-items: center; gap: .55rem; padding-top: .55rem; }
+.holdings-as-of > span:nth-child(2) { display: grid; gap: .08rem; }
+.holdings-as-of small { color: #64786e; font-size: .65rem; }
+.holdings-as-of em { padding: .2rem .4rem; border-radius: 5px; color: #e7bd68; background: #2d2617; font-size: .62rem; font-style: normal; white-space: nowrap; }
+.freshness-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+.holdings-as-of.stale .freshness-dot { background: #d7a84e; }
 .holdings-metrics { display: grid; grid-template-columns: 1.5fr 1fr 1fr .8fr; gap: .8rem; margin-bottom: 1rem; }
 .holding-metric { position: relative; overflow: hidden; display: grid; gap: .3rem; min-height: 126px; padding: 1.15rem 1.25rem; border: 1px solid var(--line); border-radius: 14px; background: #101d18; }
 .holding-metric.filter-card { width: 100%; color: var(--ink); text-align: left; background: #101d18; transition: border-color .18s ease, transform .18s ease; }
@@ -227,6 +234,9 @@ input:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px
 .holding-identity > span:last-child { min-width: 0; display: grid; gap: .2rem; }
 .holding-identity strong { font: 600 1rem "Manrope"; }
 .holding-identity small { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.holding-statuses { display: flex; gap: .3rem; }
+.holding-statuses em { width: fit-content; padding: .1rem .3rem; border-radius: 4px; color: #d9b15f; background: #2b2518; font-size: .56rem; font-style: normal; letter-spacing: .04em; text-transform: uppercase; }
+.holding-statuses em.stale { color: #d6a66c; background: #2b2118; }
 .asset-mark { flex: 0 0 auto; width: 42px; height: 42px; display: grid; place-items: center; border-radius: 11px; color: #a9e9ca; background: #1d392d; font: 700 .8rem "Manrope"; letter-spacing: .03em; }
 .asset-mark.crypto { color: #ffd56c; background: #3a2f17; }
 .asset-mark.cash { color: #9dc8ff; background: #172c3e; }
@@ -298,6 +308,8 @@ input:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px
 }
 
 @media (max-width: 480px) {
+  .holdings-header { flex-direction: column; }
+  .holdings-as-of { padding-top: .8rem; }
   .source-page-header { flex-direction: column; }
   .section-heading { align-items: flex-start; gap: .8rem; }
   .section-heading-actions { flex-direction: row-reverse; }

@@ -13,9 +13,9 @@ from app.integrations.connectors.base import (
     ConnectorTransaction,
 )
 from app.models.broker import BrokerConnection
-from app.models.enums import ConnectionStatus, SyncRunStatus, SyncTrigger
+from app.models.enums import Broker, ConnectionStatus, SyncRunStatus, SyncTrigger
 from app.models.sync import SyncRun
-from app.services.connection_sync import ConnectionSyncService
+from app.services.connection_sync import ConnectionSyncService, reconciliation_result
 
 TEST_KEY = "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA="
 
@@ -103,6 +103,26 @@ def _connection() -> BrokerConnection:
         credential_hint="••••test",
         status=ConnectionStatus.PENDING,
     )
+
+
+def test_reconciliation_ignores_normal_timing_difference() -> None:
+    difference, warning = reconciliation_result(
+        Broker.TRADING212, Decimal("9894"), Decimal("10000")
+    )
+
+    assert difference == Decimal("1.0600")
+    assert warning is None
+
+
+def test_reconciliation_warns_only_for_material_difference() -> None:
+    difference, warning = reconciliation_result(
+        Broker.ETORO, Decimal("9500"), Decimal("10000")
+    )
+
+    assert difference == Decimal("5.00")
+    assert warning is not None
+    assert "5.0%" in warning
+    assert "latest holdings were preserved" in warning.lower()
 
 
 @pytest.mark.asyncio

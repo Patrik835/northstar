@@ -82,6 +82,11 @@ export type HoldingSource = {
   reported_pnl_eur: string | null;
   instrument_percentage: string;
   last_synced_at: string | null;
+  valued_at: string | null;
+  valuation_source: string;
+  is_estimated: boolean;
+  freshness_status: "fresh" | "stale";
+  is_stale: boolean;
 };
 
 export type Holding = {
@@ -100,7 +105,19 @@ export type Holding = {
   reported_pnl_source_count: number;
   portfolio_percentage: string;
   source_count: number;
+  as_of: string | null;
+  is_stale: boolean;
+  stale_source_count: number;
+  has_estimated_value: boolean;
   sources: HoldingSource[];
+};
+
+export type ReconciliationWarning = {
+  broker: Broker;
+  connection_id: string;
+  difference_percent: string | null;
+  checked_at: string | null;
+  message: string;
 };
 
 export type HoldingsResponse = {
@@ -111,6 +128,10 @@ export type HoldingsResponse = {
   instrument_count: number;
   position_count: number;
   unmatched_positions: number;
+  as_of: string | null;
+  stale_source_count: number;
+  estimated_position_count: number;
+  reconciliation_warnings: ReconciliationWarning[];
   sources: AllocationItem[];
   holdings: Holding[];
 };

@@ -19,6 +19,18 @@ class HoldingPositionRow:
     connection_id: uuid.UUID
     last_synced_at: datetime | None
     instrument: Instrument | None
+    reconciliation_difference_percent: Decimal | None = None
+    reconciliation_checked_at: datetime | None = None
+    reconciliation_warning: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ConnectionQualityRow:
+    broker: Broker
+    connection_id: uuid.UUID
+    reconciliation_difference_percent: Decimal | None
+    reconciliation_checked_at: datetime | None
+    reconciliation_warning: str | None
 
 
 class PortfolioRepository:
@@ -78,6 +90,28 @@ class PortfolioRepository:
                 connection_id=connection.id,
                 last_synced_at=connection.last_synced_at,
                 instrument=instrument,
+                reconciliation_difference_percent=(
+                    connection.reconciliation_difference_percent
+                ),
+                reconciliation_checked_at=connection.reconciliation_checked_at,
+                reconciliation_warning=connection.reconciliation_warning,
             )
             for position, connection, instrument in rows
+        ]
+
+    async def connection_quality(self, user_id: uuid.UUID) -> list[ConnectionQualityRow]:
+        rows = await self.db.execute(
+            select(BrokerConnection).where(BrokerConnection.user_id == user_id)
+        )
+        return [
+            ConnectionQualityRow(
+                broker=connection.broker,
+                connection_id=connection.id,
+                reconciliation_difference_percent=(
+                    connection.reconciliation_difference_percent
+                ),
+                reconciliation_checked_at=connection.reconciliation_checked_at,
+                reconciliation_warning=connection.reconciliation_warning,
+            )
+            for connection in rows.scalars()
         ]

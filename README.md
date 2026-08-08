@@ -14,7 +14,9 @@ rate-limit-aware retry/backoff, visible connection freshness, and
 the basic aggregated dashboard are implemented. Canonical instruments now combine equivalent holdings across
 brokers, while a searchable holdings view exposes consolidated stock/ETF and crypto
 positions, subtle Trading 212/eToro reported P/L with coverage labels, and each
-platform's original detail. Binance and eToro both have automated
+platform's original detail. Holdings also show their latest valuation time and only
+surface stale, estimated, or materially unreconciled data when attention is needed.
+Binance and eToro both have automated
 contract coverage and successful real read-only account smoke tests.
 Trading 212 Crypto is supported through repeatable, deduplicated CSV imports because its
 separate Crypto account has no Public API. Advanced analytics, real estate, news, and AI
@@ -227,6 +229,10 @@ available at `http://localhost:8000/docs`.
   it as `success`, `partial`, or `error`. Counts, trigger (`initial`, `manual`, or
   `scheduled`), timestamps, and bounded user-safe error details are available from
   `GET /api/v1/connections/{connection_id}/sync-runs`.
+- Trading 212 and eToro position totals are silently checked against the independently
+  reported provider account total after each successful refresh. Differences must exceed
+  both 3% and EUR 5 before the connection and Holdings page show a warning. Binance is
+  excluded because its snapshot total is calculated from the same imported balances.
 - Transient safe provider reads use at most three attempts with exponential backoff.
   Standard `Retry-After`, Trading 212 reset timestamps, and Binance's `418`/`429`
   responses are handled without exposing provider response bodies to users.

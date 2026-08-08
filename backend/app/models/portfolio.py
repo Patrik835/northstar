@@ -3,7 +3,17 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Date, DateTime, Enum, ForeignKey, Numeric, String, UniqueConstraint, func
+from sqlalchemy import (
+    Boolean,
+    Date,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Numeric,
+    String,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -42,6 +52,15 @@ class Position(Base):
     reported_pnl: Mapped[Decimal | None] = mapped_column(Numeric(20, 4), nullable=True)
     reported_pnl_eur: Mapped[Decimal | None] = mapped_column(
         Numeric(20, 4), nullable=True
+    )
+    valued_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    valuation_source: Mapped[str] = mapped_column(
+        String(32), default="provider", server_default="provider"
+    )
+    is_estimated: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false"
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

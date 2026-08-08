@@ -264,6 +264,7 @@ class Trading212Connector(BrokerConnector):
             total_value=Decimal(str(summary.get("totalValue", 0))),
             currency=str(summary["currency"]),
             reported_pnl=_decimal_or_none(investments.get("unrealizedProfitLoss")),
+            independent_total=True,
         )
 
     async def _summary(self) -> dict[str, Any]:

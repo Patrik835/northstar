@@ -357,6 +357,7 @@ class Trading212CryptoImportService:
         resolver = InstrumentResolver(self.db)
         positions: list[Position] = []
         total_value = Decimal(0)
+        valuation_at = datetime.now(timezone.utc)
         for ticker in sorted(assets):
             state = states[ticker]
             rate = current_rates.get(ticker) or state.last_price_eur
@@ -396,6 +397,11 @@ class Trading212CryptoImportService:
                     current_value=value_eur,
                     currency="EUR",
                     current_value_eur=value_eur,
+                    valued_at=valuation_at,
+                    valuation_source=(
+                        "market" if ticker in current_rates else "last_trade"
+                    ),
+                    is_estimated=ticker not in current_rates,
                 )
             )
         self.db.add_all(positions)

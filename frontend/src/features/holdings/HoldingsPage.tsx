@@ -66,6 +66,20 @@ function brokerLabel(broker: Broker) {
   return brokerLabels[broker] ?? broker;
 }
 
+function timestamp(value: string | null) {
+  if (!value) return "Awaiting first valuation";
+  return new Date(value).toLocaleString(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+}
+
+function valuationLabel(source: HoldingSource) {
+  if (source.valuation_source === "last_trade") return "Estimated from last trade";
+  if (source.valuation_source === "market") return "Market price";
+  return "Provider value";
+}
+
 type PnlSummary = {
   value: number;
   percentage: number | null;
@@ -174,6 +188,14 @@ export function HoldingsPage() {
         new Set(sources.map((source) => source.canonical_symbol)),
       ).sort();
       const isCompanyGroup = instrumentIds.size > 1;
+      const staleConnectionIds = new Set(
+        sources.filter((source) => source.is_stale).map((source) => source.connection_id),
+      );
+      const asOf = sources.reduce<string | null>((latest, source) => {
+        if (!source.valued_at) return latest;
+        if (!latest || new Date(source.valued_at) > new Date(latest)) return source.valued_at;
+        return latest;
+      }, null);
       const totalQuantity = isCompanyGroup
         ? null
         : sources.reduce((total, source) => total + sourceQuantity(source), 0);
@@ -190,6 +212,10 @@ export function HoldingsPage() {
           totalValue,
           totalQuantity,
           pnl: summarizePnl(sources),
+          as_of: asOf,
+          is_stale: staleConnectionIds.size > 0,
+          stale_source_count: staleConnectionIds.size,
+          has_estimated_value: sources.some((source) => source.is_estimated),
         },
       ];
     });
@@ -257,6 +283,19 @@ export function HoldingsPage() {
       .filter((holding) => holding.asset_type === "crypto")
       .flatMap((holding) => holding.sources),
   );
+  const scopedSources = scopedHoldings.flatMap((holding) => holding.sources);
+  const scopedAsOf = scopedSources.reduce<string | null>((latest, source) => {
+    if (!source.valued_at) return latest;
+    if (!latest || new Date(source.valued_at) > new Date(latest)) return source.valued_at;
+    return latest;
+  }, null);
+  const staleConnectionCount = new Set(
+    scopedSources.filter((source) => source.is_stale).map((source) => source.connection_id),
+  ).size;
+  const reconciliationWarnings =
+    platform === "all"
+      ? (portfolio?.reconciliation_warnings ?? [])
+      : (portfolio?.reconciliation_warnings.filter((warning) => warning.broker === platform) ?? []);
 
   return (
     <>
@@ -268,10 +307,26 @@ export function HoldingsPage() {
             One clean view of every asset, with each broker position preserved underneath.
           </p>
         </div>
-        <span className="as-of">Current values in EUR</span>
+        <span className={`as-of holdings-as-of${staleConnectionCount ? " stale" : ""}`}>
+          <span className="freshness-dot" />
+          <span>
+            {scopedAsOf ? `Updated ${timestamp(scopedAsOf)}` : "Awaiting first valuation"}
+            <small>Values in EUR</small>
+          </span>
+          {staleConnectionCount > 0 && (
+            <em>
+              {staleConnectionCount} stale source{staleConnectionCount === 1 ? "" : "s"}
+            </em>
+          )}
+        </span>
       </header>
 
       {error && <p className="error">{error}</p>}
+      {reconciliationWarnings.map((warning) => (
+        <p className="holdings-warning reconciliation-warning" key={warning.connection_id}>
+          <strong>Source total needs attention.</strong> {warning.message}
+        </p>
+      ))}
       {portfolio?.unmatched_positions ? (
         <p className="holdings-warning">
           {portfolio.unmatched_positions} existing position
@@ -429,6 +484,12 @@ export function HoldingsPage() {
                             ? `${holding.symbols.join(" · ")} · combined company exposure`
                             : holding.name}
                         </small>
+                        {(holding.is_stale || holding.has_estimated_value) && (
+                          <span className="holding-statuses">
+                            {holding.is_stale && <em className="stale">Stale</em>}
+                            {holding.has_estimated_value && <em>Estimated</em>}
+                          </span>
+                        )}
                       </span>
                     </span>
                     <span>
@@ -574,9 +635,9 @@ function HoldingDetails({ holding }: { holding: ScopedHolding }) {
               </div>
             </dl>
             <footer>
-              {source.last_synced_at
-                ? `Synced ${new Date(source.last_synced_at).toLocaleString()}`
-                : "Awaiting first successful sync"}
+              {source.valued_at ? `Valued ${timestamp(source.valued_at)}` : "No valuation date"}
+              {` · ${valuationLabel(source)}`}
+              {source.is_stale ? " · Stale" : ""}
             </footer>
           </article>
         ))}

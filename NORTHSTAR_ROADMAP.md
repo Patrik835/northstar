@@ -99,7 +99,8 @@ This direction matches the strongest capabilities offered by mature trackers: ge
 ## Requirements and Interface Changes
 
 - Replace the implicit broker-symbol model with canonical `Instrument` and `InstrumentAlias` records so the same security held at different brokers is aggregated correctly.
-- Permit multiple accounts from the same broker by replacing the current one-user/one-broker constraint with user-owned, labelled connections.
+- Keep one connection per provider at launch. Multiple labelled accounts are deferred
+  unless demonstrated demand justifies the extra setup and reporting complexity.
 - Extend transactions with fees, taxes withheld, source/import provenance, broker account, original currency, and synchronization identifiers.
 - Add persisted daily FX rates, market prices, sync runs, import jobs, and data-quality issues.
 - Keep current positions fresh every 1–2 hours while retaining one end-of-day valuation point for long-term charts.
@@ -142,12 +143,12 @@ All implementation tickets should target approximately 1–3 working days and in
 21. [x] Support the native Trading 212 Crypto CSV with validation, atomic persistence, and repeat-import deduplication. Generic CSV mapping is intentionally out of scope.
 22. [removed] Do not provide generic transaction templates; supported imports should accept the provider's native export without user reformatting.
 23. [moved] Reserve manual entry for the Phase 4 diversified-asset model in item 63, beginning with real estate rather than manually maintained stocks or crypto.
-24. Add automatic reconciliation checks to synchronization and supported CSV imports without a separate user-operated data-quality workflow. (Partial: Trading 212 Crypto repeated/overlapping files are deduplicated.)
+24. [x] Add automatic source-total reconciliation where a live provider exposes an independent account total, warning only beyond both 3% and EUR 5. Providers without an independent total remain silent; Trading 212 Crypto overlap deduplication stays automatic.
 
 ### Milestone 2 — Portfolio Analytics and Usable Dashboard
 
-25. Build a holdings API/page with search, sorting, grouping, and original/EUR values. (Partial: API, search, asset/platform grouping, fixed value ordering, and both currencies are implemented; selectable sorting remains.)
-26. Build holding detail with quantity, cost, value, gain/loss, source accounts, and activity. (Partial: expandable quantity, average price, value, aliases, source accounts, freshness, and aggregated/per-source broker-reported P/L are implemented; calculated gain/loss and activity remain.)
+25. [x] Build a holdings API/page with search, value/P&L sorting, asset/platform grouping, and original/EUR values.
+26. Build holding detail with quantity, cost, value, gain/loss, source accounts, and activity. (Partial: expandable quantity, average price, value, aliases, source accounts, valuation time, stale/estimated states, and aggregated/per-source broker-reported P/L are implemented; calculated gain/loss and activity remain.)
 27. Build a unified transaction/activity API and filterable page.
 28. Add editable categories, tags, notes, and target allocation to holdings.
 29. Build consolidated daily portfolio-history queries with 1M/3M/6M/1Y/all ranges.

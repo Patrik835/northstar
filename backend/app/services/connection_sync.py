@@ -2,6 +2,7 @@ import logging
 import re
 import uuid
 from datetime import date, datetime, timezone
+from decimal import Decimal
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,6 +27,45 @@ logger = logging.getLogger(__name__)
 GENERIC_SYNC_ERROR = "The broker data could not be imported. Please try again."
 MAX_BACKFILL_PAGES_PER_STREAM = 5
 BINANCE_ACTIVITY_CURSOR = "binance-activity-v1"
+RECONCILIATION_PERCENT_THRESHOLD = Decimal("3")
+RECONCILIATION_ABSOLUTE_THRESHOLD_EUR = Decimal("5")
+
+
+def reconciliation_result(
+    broker: Broker,
+    positions_total_eur: Decimal,
+    reported_total_eur: Decimal,
+) -> tuple[Decimal | None, str | None]:
+    difference_eur = abs(positions_total_eur - reported_total_eur)
+    if reported_total_eur == 0:
+        warning = (
+            f"{_broker_label(broker)} reported a zero account total while imported "
+            "holdings have value. The latest holdings were preserved."
+            if difference_eur > RECONCILIATION_ABSOLUTE_THRESHOLD_EUR
+            else None
+        )
+        return None, warning
+
+    difference_percent = difference_eur * 100 / abs(reported_total_eur)
+    if (
+        difference_eur <= RECONCILIATION_ABSOLUTE_THRESHOLD_EUR
+        or difference_percent <= RECONCILIATION_PERCENT_THRESHOLD
+    ):
+        return difference_percent, None
+    rounded = difference_percent.quantize(Decimal("0.1"))
+    return difference_percent, (
+        f"{_broker_label(broker)} holdings differ from its reported account total by "
+        f"{rounded}%. The latest holdings were preserved."
+    )
+
+
+def _broker_label(broker: Broker) -> str:
+    return {
+        Broker.TRADING212: "Trading 212",
+        Broker.TRADING212_CRYPTO: "Trading 212 Crypto",
+        Broker.ETORO: "eToro",
+        Broker.BINANCE: "Binance",
+    }[broker]
 
 
 class ConnectionSyncService:
@@ -117,6 +157,22 @@ class ConnectionSyncService:
             except FxRateError as exc:
                 raise ConnectorError(str(exc)) from exc
 
+            valuation_at = datetime.now(timezone.utc)
+            reconciliation_warning = None
+            if snapshot.independent_total:
+                difference_percent, reconciliation_warning = reconciliation_result(
+                    connection.broker,
+                    sum(position_values_eur, Decimal(0)),
+                    snapshot_value_eur,
+                )
+                connection.reconciliation_difference_percent = difference_percent
+                connection.reconciliation_checked_at = valuation_at
+                connection.reconciliation_warning = reconciliation_warning
+            else:
+                connection.reconciliation_difference_percent = None
+                connection.reconciliation_checked_at = None
+                connection.reconciliation_warning = None
+
             resolver = InstrumentResolver(self.db)
             canonical_instruments = [
                 await resolver.resolve(connection.broker, item) for item in positions
@@ -141,6 +197,11 @@ class ConnectionSyncService:
                         current_value_eur=value_eur,
                         reported_pnl=item.reported_pnl,
                         reported_pnl_eur=pnl_eur,
+                        valued_at=valuation_at,
+                        valuation_source=(
+                            "market" if connection.broker is Broker.BINANCE else "provider"
+                        ),
+                        is_estimated=False,
                     )
                     for item, value_eur, pnl_eur, canonical in zip(
                         positions,
@@ -192,20 +253,24 @@ class ConnectionSyncService:
                     )
                 )
 
-            connection.status = (
-                ConnectionStatus.LIMITED if history_warning else ConnectionStatus.ACTIVE
-            )
-            connection.last_error = history_warning
+            warnings = [
+                warning
+                for warning in (history_warning, reconciliation_warning)
+                if warning is not None
+            ]
+            warning_detail = " ".join(warnings) or None
+            connection.status = ConnectionStatus.LIMITED if warnings else ConnectionStatus.ACTIVE
+            connection.last_error = warning_detail
             completed_at = datetime.now(timezone.utc)
             connection.last_synced_at = completed_at
             connection.last_successful_sync_at = completed_at
-            run.status = SyncRunStatus.PARTIAL if history_warning else SyncRunStatus.SUCCESS
+            run.status = SyncRunStatus.PARTIAL if warnings else SyncRunStatus.SUCCESS
             run.positions_written = len(positions)
             if not paginated_history:
                 run.transactions_read = len(transactions)
                 run.transactions_written = new_transactions_written
-            run.warning_count = 1 if history_warning else 0
-            run.safe_error_detail = history_warning
+            run.warning_count = len(warnings)
+            run.safe_error_detail = warning_detail
             run.finished_at = completed_at
             await self.db.commit()
         except ConnectorError as exc:

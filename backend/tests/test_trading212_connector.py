@@ -121,6 +121,7 @@ async def test_trading212_validates_and_maps_portfolio() -> None:
     assert activity[0].transaction_type is TransactionType.BUY
     assert activity[0].external_id == "order-fill:42"
     assert snapshot.total_value == Decimal("1350.5")
+    assert snapshot.independent_total is True
     assert snapshot.reported_pnl == Decimal("135.5")
 
 

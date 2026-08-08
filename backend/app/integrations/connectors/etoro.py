@@ -369,6 +369,7 @@ class EtoroConnector(BrokerConnector):
             total_value=Decimal(str(totals.get("accountTotalValue", 0))),
             currency=str(self._portfolio["accountCurrency"]).upper(),
             reported_pnl=reported_pnl,
+            independent_total=True,
         )
 
 

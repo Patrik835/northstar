@@ -1,10 +1,11 @@
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.enums import Broker, ConnectionStatus, SyncRunStatus, SyncTrigger
+from app.services.freshness import connection_freshness
 
 if TYPE_CHECKING:
     from app.models.broker import BrokerConnection
@@ -39,28 +40,15 @@ class ConnectionRead(BaseModel):
         cls, connection: "BrokerConnection", sync_interval_minutes: int
     ) -> "ConnectionRead":
         successful_at = connection.last_successful_sync_at or connection.last_synced_at
-        is_live = connection.broker in {
-            Broker.TRADING212,
-            Broker.ETORO,
-            Broker.BINANCE,
-        }
-        stale_after = (
-            successful_at + timedelta(minutes=sync_interval_minutes * 2)
-            if successful_at is not None and is_live
-            else None
+        freshness = connection_freshness(
+            connection.broker, successful_at, sync_interval_minutes
         )
-        if successful_at is None:
-            freshness_status: Literal["never_synced", "fresh", "stale"] = "never_synced"
-        elif stale_after is not None and datetime.now(timezone.utc) > stale_after:
-            freshness_status = "stale"
-        else:
-            freshness_status = "fresh"
         return cls.model_validate(connection).model_copy(
             update={
                 "last_successful_sync_at": successful_at,
-                "freshness_status": freshness_status,
-                "is_stale": freshness_status != "fresh",
-                "stale_after": stale_after,
+                "freshness_status": freshness.status,
+                "is_stale": freshness.is_stale,
+                "stale_after": freshness.stale_after,
             }
         )
 

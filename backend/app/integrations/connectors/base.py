@@ -69,6 +69,7 @@ class ConnectorSnapshot:
     total_value: Decimal
     currency: str
     reported_pnl: Decimal | None = None
+    independent_total: bool = False
 
 
 class BrokerConnector(ABC):

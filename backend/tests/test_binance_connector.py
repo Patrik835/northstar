@@ -196,6 +196,7 @@ async def test_binance_signs_and_maps_spot_portfolio() -> None:
     }
     assert trade_symbols == {"BTCEUR", "ETHEUR"}
     assert snapshot.total_value == Decimal("5100.0")
+    assert snapshot.independent_total is False
     assert snapshot.currency == "EUR"
 
 
