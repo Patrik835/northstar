@@ -6,7 +6,7 @@ from app.core.encryption import CredentialCipher, mask_secret
 from app.integrations.connectors.base import ConnectorError
 from app.integrations.connectors.registry import ConnectorRegistry
 from app.models.broker import BrokerConnection
-from app.models.enums import Broker, ConnectionStatus
+from app.models.enums import Broker, ConnectionStatus, SyncTrigger
 from app.repositories.connections import ConnectionRepository
 from app.services.connection_sync import ConnectionSyncService
 
@@ -56,7 +56,9 @@ class ConnectionService:
         self.db.add(connection)
         await self.db.commit()
         await self.db.refresh(connection)
-        return await ConnectionSyncService(self.db, self.cipher).sync(connection, connector)
+        return await ConnectionSyncService(self.db, self.cipher).sync(
+            connection, connector, trigger=SyncTrigger.INITIAL
+        )
 
     async def delete(self, connection_id: uuid.UUID, user_id: uuid.UUID) -> bool:
         connection = await self.repo.owned(connection_id, user_id)

@@ -266,7 +266,7 @@ class Trading212CryptoImportService:
         self.db = db
         self.cipher = cipher
         self.prices = prices or BinanceCryptoPriceProvider()
-        self.fx_rates = fx_rates or EcbFxRateProvider()
+        self.fx_rates = fx_rates or EcbFxRateProvider(db)
 
     async def import_csv(self, user_id: uuid.UUID, content: bytes) -> CryptoImportSummary:
         parsed = Trading212CryptoCsvParser().parse(content)
@@ -426,7 +426,10 @@ class Trading212CryptoImportService:
             ConnectionStatus.LIMITED if valuation_warnings else ConnectionStatus.ACTIVE
         )
         connection.last_error = " ".join(valuation_warnings[:3]) or None
-        connection.last_synced_at = datetime.now(timezone.utc)
+        completed_at = datetime.now(timezone.utc)
+        connection.last_sync_attempt_at = completed_at
+        connection.last_successful_sync_at = completed_at
+        connection.last_synced_at = completed_at
         await self.db.commit()
         await self.db.refresh(connection)
         return CryptoImportSummary(

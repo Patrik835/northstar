@@ -7,12 +7,14 @@ import httpx
 from app.integrations.connectors.base import (
     BrokerConnector,
     BrokerPermissionError,
+    BrokerRateLimitError,
     BrokerUnavailableError,
     ConnectorPosition,
     ConnectorSnapshot,
     ConnectorTransaction,
     InvalidBrokerCredentials,
 )
+from app.integrations.connectors.retry import request_with_backoff, retry_after_seconds
 from app.models.enums import AssetType, TransactionType
 
 
@@ -44,9 +46,14 @@ class Trading212Connector(BrokerConnector):
     async def _get(
         self, path: str, params: dict[str, str | int] | None = None
     ) -> Any:
-        try:
+        async def send() -> httpx.Response:
             async with self._client() as client:
-                response = await client.get(path, params=params)
+                return await client.get(path, params=params)
+
+        try:
+            response = await request_with_backoff(
+                send, reset_header="x-ratelimit-reset"
+            )
         except httpx.TimeoutException as exc:
             raise BrokerUnavailableError(
                 "Trading 212 did not respond in time. Please try again."
@@ -71,8 +78,16 @@ class Trading212Connector(BrokerConnector):
                 "Check the key's IP restriction and read permissions."
             )
         if response.status_code == 429:
-            raise BrokerUnavailableError(
-                "Trading 212's request limit was reached. Wait a moment and try again."
+            retry_after = retry_after_seconds(
+                response, reset_header="x-ratelimit-reset"
+            )
+            suffix = (
+                f" Try again in about {max(1, round(retry_after))} seconds."
+                if retry_after is not None
+                else " Wait a moment and try again."
+            )
+            raise BrokerRateLimitError(
+                f"Trading 212's request limit was reached.{suffix}", retry_after
             )
         if response.status_code >= 500:
             raise BrokerUnavailableError(

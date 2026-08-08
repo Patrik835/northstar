@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.broker import BrokerConnection
 from app.models.enums import Broker, ConnectionStatus
+from app.models.sync import SyncRun
 
 
 class ConnectionRepository:
@@ -51,5 +52,16 @@ class ConnectionRepository:
                 BrokerConnection.broker == Broker.ETORO,
                 BrokerConnection.status != ConnectionStatus.DISABLED,
             )
+        )
+        return list(result)
+
+    async def sync_runs(
+        self, connection_id: uuid.UUID, *, limit: int = 20
+    ) -> list[SyncRun]:
+        result = await self.db.scalars(
+            select(SyncRun)
+            .where(SyncRun.broker_connection_id == connection_id)
+            .order_by(SyncRun.started_at.desc())
+            .limit(limit)
         )
         return list(result)

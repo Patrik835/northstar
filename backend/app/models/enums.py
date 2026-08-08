@@ -24,6 +24,19 @@ class ConnectionStatus(StrEnum):
     DISABLED = "disabled"
 
 
+class SyncRunStatus(StrEnum):
+    RUNNING = "running"
+    SUCCESS = "success"
+    PARTIAL = "partial"
+    ERROR = "error"
+
+
+class SyncTrigger(StrEnum):
+    INITIAL = "initial"
+    MANUAL = "manual"
+    SCHEDULED = "scheduled"
+
+
 class AssetType(StrEnum):
     STOCK = "stock"
     ETF = "etf"

@@ -12,6 +12,7 @@ import httpx
 from app.integrations.connectors.base import (
     BrokerConnector,
     BrokerPermissionError,
+    BrokerRateLimitError,
     BrokerUnavailableError,
     ConnectorError,
     ConnectorPosition,
@@ -19,6 +20,7 @@ from app.integrations.connectors.base import (
     ConnectorTransaction,
     InvalidBrokerCredentials,
 )
+from app.integrations.connectors.retry import request_with_backoff, retry_after_seconds
 from app.models.enums import AssetType, TransactionType
 
 
@@ -73,9 +75,12 @@ class BinanceConnector(BrokerConnector):
         else:
             request_path = path
 
-        try:
+        async def send() -> httpx.Response:
             async with self._client() as client:
-                response = await client.get(request_path, headers=headers)
+                return await client.get(request_path, headers=headers)
+
+        try:
+            response = await request_with_backoff(send)
         except httpx.TimeoutException as exc:
             raise BrokerUnavailableError(
                 "Binance did not respond in time. Please try again."
@@ -102,8 +107,14 @@ class BinanceConnector(BrokerConnector):
                 "and IP restriction."
             )
         if response.status_code in {418, 429}:
-            raise BrokerUnavailableError(
-                "Binance's request limit was reached. Wait before synchronizing again."
+            retry_after = retry_after_seconds(response)
+            suffix = (
+                f" Try again in about {max(1, round(retry_after))} seconds."
+                if retry_after is not None
+                else " Wait before synchronizing again."
+            )
+            raise BrokerRateLimitError(
+                f"Binance's request limit was reached.{suffix}", retry_after
             )
         if error_code == -1021:
             self._clock_offset_ms = None

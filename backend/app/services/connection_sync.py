@@ -1,19 +1,28 @@
 import logging
+import re
+import uuid
 from datetime import date, datetime, timezone
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.encryption import CredentialCipher
-from app.integrations.connectors.base import BrokerConnector, BrokerPermissionError, ConnectorError
+from app.integrations.connectors.base import (
+    BrokerConnector,
+    BrokerPermissionError,
+    ConnectorError,
+)
 from app.integrations.connectors.registry import ConnectorRegistry
 from app.integrations.market_data import EcbFxRateProvider, FxRateError, FxRateProvider
 from app.models.broker import BrokerConnection
-from app.models.enums import ConnectionStatus
+from app.models.enums import ConnectionStatus, SyncRunStatus, SyncTrigger
 from app.models.portfolio import PortfolioSnapshot, Position, Transaction
+from app.models.sync import SyncRun
 from app.services.instrument_resolver import InstrumentResolver
 
 logger = logging.getLogger(__name__)
+
+GENERIC_SYNC_ERROR = "The broker data could not be imported. Please try again."
 
 
 class ConnectionSyncService:
@@ -25,19 +34,34 @@ class ConnectionSyncService:
     ) -> None:
         self.db = db
         self.cipher = cipher
-        self.fx_rates = fx_rates or EcbFxRateProvider()
+        self.fx_rates = fx_rates or EcbFxRateProvider(db)
 
     async def sync(
         self,
         connection: BrokerConnection,
         connector: BrokerConnector | None = None,
+        *,
+        trigger: SyncTrigger = SyncTrigger.MANUAL,
     ) -> BrokerConnection:
         connection_id = connection.id
-        connector = connector or ConnectorRegistry().create(
-            connection.broker,
-            self.cipher.decrypt(connection.encrypted_credentials),
+        attempted_at = datetime.now(timezone.utc)
+        connection.last_sync_attempt_at = attempted_at
+        run = SyncRun(
+            broker_connection_id=connection_id,
+            status=SyncRunStatus.RUNNING,
+            trigger=trigger,
         )
+        self.db.add(run)
+        # Persist RUNNING independently so a later rollback cannot erase observability.
+        await self.db.commit()
+        await self.db.refresh(run)
+        run_id = run.id
+
         try:
+            connector = connector or ConnectorRegistry().create(
+                connection.broker,
+                self.cipher.decrypt(connection.encrypted_credentials),
+            )
             await connector.validate_credentials()
             positions = await connector.fetch_positions()
             history_warning = None
@@ -45,7 +69,7 @@ class ConnectionSyncService:
                 transactions = await connector.fetch_transactions(connection.last_synced_at)
             except BrokerPermissionError as exc:
                 transactions = []
-                history_warning = str(exc)
+                history_warning = _safe_detail(exc)
             snapshot = await connector.fetch_snapshot(date.today())
 
             try:
@@ -98,6 +122,9 @@ class ConnectionSyncService:
                     )
                 )
             )
+            new_transactions = [
+                item for item in transactions if item.external_id not in existing_ids
+            ]
             self.db.add_all(
                 [
                     Transaction(
@@ -111,8 +138,7 @@ class ConnectionSyncService:
                         currency=item.currency,
                         executed_at=item.executed_at,
                     )
-                    for item in transactions
-                    if item.external_id not in existing_ids
+                    for item in new_transactions
                 ]
             )
 
@@ -141,23 +167,53 @@ class ConnectionSyncService:
                 ConnectionStatus.LIMITED if history_warning else ConnectionStatus.ACTIVE
             )
             connection.last_error = history_warning
-            connection.last_synced_at = datetime.now(timezone.utc)
+            completed_at = datetime.now(timezone.utc)
+            connection.last_synced_at = completed_at
+            connection.last_successful_sync_at = completed_at
+            run.status = SyncRunStatus.PARTIAL if history_warning else SyncRunStatus.SUCCESS
+            run.positions_written = len(positions)
+            run.transactions_read = len(transactions)
+            run.transactions_written = len(new_transactions)
+            run.warning_count = 1 if history_warning else 0
+            run.safe_error_detail = history_warning
+            run.finished_at = completed_at
             await self.db.commit()
         except ConnectorError as exc:
             await self.db.rollback()
-            connection = await self.db.get(BrokerConnection, connection_id)
-            assert connection is not None
+            detail = _safe_detail(exc)
+            connection, run = await self._reload(connection_id, run_id)
             connection.status = ConnectionStatus.ERROR
-            connection.last_error = str(exc)
+            connection.last_error = detail
+            run.status = SyncRunStatus.ERROR
+            run.safe_error_detail = detail
+            run.finished_at = datetime.now(timezone.utc)
             await self.db.commit()
         except Exception:
             await self.db.rollback()
             logger.exception("Unexpected broker sync failure for connection %s", connection_id)
-            connection = await self.db.get(BrokerConnection, connection_id)
-            assert connection is not None
+            connection, run = await self._reload(connection_id, run_id)
             connection.status = ConnectionStatus.ERROR
-            connection.last_error = "The broker data could not be imported. Please try again."
+            connection.last_error = GENERIC_SYNC_ERROR
+            run.status = SyncRunStatus.ERROR
+            run.safe_error_detail = GENERIC_SYNC_ERROR
+            run.finished_at = datetime.now(timezone.utc)
             await self.db.commit()
 
         await self.db.refresh(connection)
         return connection
+
+    async def _reload(
+        self, connection_id: uuid.UUID, run_id: uuid.UUID
+    ) -> tuple[BrokerConnection, SyncRun]:
+        connection = await self.db.get(BrokerConnection, connection_id)
+        run = await self.db.get(SyncRun, run_id)
+        assert connection is not None
+        assert run is not None
+        return connection, run
+
+
+def _safe_detail(error: ConnectorError) -> str:
+    """Bound connector-authored user-safe text before it reaches persistent storage."""
+
+    detail = re.sub(r"[\x00-\x1f\x7f]+", " ", str(error)).strip()
+    return detail[:500] or GENERIC_SYNC_ERROR

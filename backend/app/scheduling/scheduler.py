@@ -4,6 +4,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 
 from app.core.config import Settings
 from app.scheduling.jobs import (
+    refresh_ecb_rates,
     sync_live_connections,
     sync_monthly_etoro_snapshots,
     sync_portfolio_news,
@@ -26,6 +27,13 @@ def build_scheduler(settings: Settings) -> AsyncIOScheduler:
         max_instances=1,
         coalesce=True,
     )
+    scheduler.add_job(
+        refresh_ecb_rates,
+        CronTrigger(hour=16, minute=30),
+        id="daily-ecb-fx-rates",
+        max_instances=1,
+        coalesce=True,
+    )
     if settings.news_enabled:
         scheduler.add_job(
             sync_portfolio_news,
@@ -35,4 +43,3 @@ def build_scheduler(settings: Settings) -> AsyncIOScheduler:
             coalesce=True,
         )
     return scheduler
-

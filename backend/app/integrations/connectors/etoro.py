@@ -8,12 +8,14 @@ import httpx
 from app.integrations.connectors.base import (
     BrokerConnector,
     BrokerPermissionError,
+    BrokerRateLimitError,
     BrokerUnavailableError,
     ConnectorPosition,
     ConnectorSnapshot,
     ConnectorTransaction,
     InvalidBrokerCredentials,
 )
+from app.integrations.connectors.retry import request_with_backoff, retry_after_seconds
 from app.models.enums import AssetType, TransactionType
 
 
@@ -49,9 +51,12 @@ class EtoroConnector(BrokerConnector):
             "x-user-key": self.credentials["user_key"],
             "x-request-id": str(uuid.uuid4()),
         }
-        try:
+        async def send() -> httpx.Response:
             async with self._client() as client:
-                response = await client.get(path, params=params, headers=headers)
+                return await client.get(path, params=params, headers=headers)
+
+        try:
+            response = await request_with_backoff(send)
         except httpx.TimeoutException as exc:
             raise BrokerUnavailableError(
                 "eToro did not respond in time. Please try again."
@@ -71,8 +76,14 @@ class EtoroConnector(BrokerConnector):
                 "eToro denied portfolio access. Create a Real-environment key with Read permission."
             )
         if response.status_code == 429:
-            raise BrokerUnavailableError(
-                "eToro's request limit was reached. Wait before synchronizing again."
+            retry_after = retry_after_seconds(response)
+            suffix = (
+                f" Try again in about {max(1, round(retry_after))} seconds."
+                if retry_after is not None
+                else " Wait before synchronizing again."
+            )
+            raise BrokerRateLimitError(
+                f"eToro's request limit was reached.{suffix}", retry_after
             )
         if response.status_code >= 500:
             raise BrokerUnavailableError(

@@ -22,6 +22,14 @@ class BrokerUnavailableError(ConnectorError):
     """The broker could not be reached or temporarily rejected the request."""
 
 
+class BrokerRateLimitError(BrokerUnavailableError):
+    """The provider asked the client to stop until its quota resets."""
+
+    def __init__(self, message: str, retry_after_seconds: float | None = None) -> None:
+        self.retry_after_seconds = retry_after_seconds
+        super().__init__(message)
+
+
 @dataclass(frozen=True, slots=True)
 class ConnectorPosition:
     instrument_id: str

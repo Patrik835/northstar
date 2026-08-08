@@ -1,12 +1,14 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, File, HTTPException, Query, UploadFile, status
 from sqlalchemy.exc import IntegrityError
 
 from app.api.dependencies import CurrentUser, DbSession
+from app.core.config import get_settings
 from app.core.encryption import CredentialCipher
-from app.models.enums import Broker
+from app.models.broker import BrokerConnection
+from app.models.enums import Broker, SyncTrigger
 from app.repositories.connections import ConnectionRepository
 from app.schemas.auth import MessageResponse
 from app.schemas.connection import (
@@ -14,6 +16,7 @@ from app.schemas.connection import (
     ConnectionGuide,
     ConnectionRead,
     CryptoCsvImportResult,
+    SyncRunRead,
 )
 from app.services.connection_sync import ConnectionSyncService
 from app.services.connections import (
@@ -28,6 +31,12 @@ from app.services.trading212_crypto_import import (
 )
 
 router = APIRouter()
+settings = get_settings()
+
+
+def _connection_read(connection: BrokerConnection) -> ConnectionRead:
+    return ConnectionRead.from_connection(connection, settings.portfolio_sync_minutes)
+
 
 SECURITY_NOTICES = {
     Broker.TRADING212: (
@@ -60,7 +69,7 @@ CREDENTIAL_LABELS = {
 }
 
 CREDENTIAL_FIELD_ORDER = {
-    Broker.ETORO: ["user_key", "api_key"],
+    Broker.ETORO: ["api_key", "user_key"],
 }
 
 TUTORIAL_URLS = {
@@ -166,7 +175,7 @@ async def guides(user: CurrentUser) -> list[ConnectionGuide]:
 @router.get("", response_model=list[ConnectionRead])
 async def list_connections(user: CurrentUser, db: DbSession) -> list[ConnectionRead]:
     connections = await ConnectionRepository(db).for_user(user.id)
-    return [ConnectionRead.model_validate(item) for item in connections]
+    return [_connection_read(item) for item in connections]
 
 
 @router.post("", response_model=ConnectionRead, status_code=status.HTTP_201_CREATED)
@@ -182,7 +191,7 @@ async def create_connection(
     except IntegrityError as exc:
         await db.rollback()
         raise HTTPException(status.HTTP_409_CONFLICT, "This source is already connected") from exc
-    return ConnectionRead.model_validate(connection)
+    return _connection_read(connection)
 
 
 @router.post("/imports/trading212-crypto", response_model=CryptoCsvImportResult)
@@ -202,7 +211,7 @@ async def import_trading212_crypto(
         await db.rollback()
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
     return CryptoCsvImportResult(
-        connection=ConnectionRead.model_validate(result.connection),
+        connection=_connection_read(result.connection),
         rows_read=result.rows_read,
         transactions_added=result.transactions_added,
         duplicates_skipped=result.duplicates_skipped,
@@ -227,5 +236,21 @@ async def sync_connection(
     connection = await ConnectionRepository(db).owned(connection_id, user.id)
     if not connection:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Connection not found")
-    synced = await ConnectionSyncService(db, CredentialCipher()).sync(connection)
-    return ConnectionRead.model_validate(synced)
+    synced = await ConnectionSyncService(db, CredentialCipher()).sync(
+        connection, trigger=SyncTrigger.MANUAL
+    )
+    return _connection_read(synced)
+
+
+@router.get("/{connection_id}/sync-runs", response_model=list[SyncRunRead])
+async def connection_sync_runs(
+    connection_id: uuid.UUID,
+    user: CurrentUser,
+    db: DbSession,
+    limit: int = Query(default=20, ge=1, le=100),
+) -> list[SyncRunRead]:
+    repository = ConnectionRepository(db)
+    if not await repository.owned(connection_id, user.id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Connection not found")
+    runs = await repository.sync_runs(connection_id, limit=limit)
+    return [SyncRunRead.model_validate(run) for run in runs]

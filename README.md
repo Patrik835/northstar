@@ -9,8 +9,9 @@ traceable, and understandable.
 The repository currently contains the application foundation and functional read-only
 connectors for Trading 212, Binance Spot, and eToro. Public registration with email
 verification, authentication, encrypted broker credentials, user profiles, scheduled
-synchronization, manual refresh, ECB currency conversion, and the basic aggregated
-dashboard are implemented. Canonical instruments now combine equivalent holdings across
+manual refresh, persisted ECB currency conversion, observable synchronization runs,
+rate-limit-aware retry/backoff, visible connection freshness, and
+the basic aggregated dashboard are implemented. Canonical instruments now combine equivalent holdings across
 brokers, while a searchable holdings view exposes consolidated stock/ETF and crypto
 positions plus each platform's original detail. The Binance and eToro connectors have
 automated contract coverage but still need smoke testing with real read-only accounts.
@@ -85,9 +86,14 @@ The main launch defaults are:
 | `SCHEDULER_ENABLED` | `true` | Runs portfolio and enabled content jobs in the API process. Disable it in tests or secondary API replicas. |
 
 The 1–2 hour interval is a freshness target, not a real-time market-data promise. Trading
-212, Binance, and eToro all use the same scheduled/manual refresh workflow. Current
-values retain their source currency, are converted to EUR for aggregation, and expose
-their last successful synchronization time.
+212, Binance, and eToro all use the same scheduled/manual refresh workflow. Safe provider
+reads retry short-lived network, `429`, and `5xx` failures with bounded exponential
+backoff and honor provider cooldown headers. Long cooldowns are left for the next
+scheduled run so one throttled account cannot hold up the rest. Current values retain
+their source currency, are converted to EUR for aggregation, and connection cards show
+fresh/stale state plus the last successful synchronization. A live connection is stale
+after two configured synchronization intervals; file imports do not age against the live
+schedule.
 
 ## Trading 212 Crypto imports
 
@@ -201,6 +207,15 @@ available at `http://localhost:8000/docs`.
   three live connectors refresh every 1–2 hours, and eToro receives an additional
   month-end synchronization.
 - ECB daily reference rates are fetched and cached in each synchronization process for
-  EUR aggregation. Persisted dated FX history and fallback behavior remain roadmap work.
+  EUR aggregation, persisted by ECB publication date, and reused across processes. A
+  daily 16:30 UTC job refreshes the cache; broker syncs fall back to the newest stored
+  working-day rates when the ECB is temporarily unavailable.
+- Every live broker refresh stores a sync run before contacting the provider and finishes
+  it as `success`, `partial`, or `error`. Counts, trigger (`initial`, `manual`, or
+  `scheduled`), timestamps, and bounded user-safe error details are available from
+  `GET /api/v1/connections/{connection_id}/sync-runs`.
+- Transient safe provider reads use at most three attempts with exponential backoff.
+  Standard `Retry-After`, Trading 212 reset timestamps, and Binance's `418`/`429`
+  responses are handled without exposing provider response bodies to users.
 - XTB remains unsupported as a live API source. It will use the planned CSV/manual
   fallback unless an official supported API becomes available.

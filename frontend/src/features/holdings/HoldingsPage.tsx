@@ -150,21 +150,39 @@ export function HoldingsPage() {
       ) : null}
 
       <section className="holdings-metrics">
-        <article className="holding-metric total">
+        <button
+          type="button"
+          className={`holding-metric filter-card total${assetGroup === "all" ? " active" : ""}`}
+          aria-pressed={assetGroup === "all"}
+          aria-controls="holdings-instruments"
+          onClick={() => setAssetGroup("all")}
+        >
           <span>{platform === "all" ? "Combined portfolio" : brokerLabel(platform)}</span>
           <strong>{portfolio ? eur.format(selectedTotal) : "—"}</strong>
           <small>{platform === "all" ? "Across every connected platform" : "Platform value"}</small>
-        </article>
-        <article className="holding-metric equities">
+        </button>
+        <button
+          type="button"
+          className={`holding-metric filter-card equities${assetGroup === "equities" ? " active" : ""}`}
+          aria-pressed={assetGroup === "equities"}
+          aria-controls="holdings-instruments"
+          onClick={() => setAssetGroup("equities")}
+        >
           <span>Stocks & ETFs</span>
           <strong>{portfolio ? eur.format(equityValue) : "—"}</strong>
           <small>Combined securities</small>
-        </article>
-        <article className="holding-metric crypto">
+        </button>
+        <button
+          type="button"
+          className={`holding-metric filter-card crypto${assetGroup === "crypto" ? " active" : ""}`}
+          aria-pressed={assetGroup === "crypto"}
+          aria-controls="holdings-instruments"
+          onClick={() => setAssetGroup("crypto")}
+        >
           <span>Crypto</span>
           <strong>{portfolio ? eur.format(cryptoValue) : "—"}</strong>
           <small>Across crypto platforms</small>
-        </article>
+        </button>
         <article className="holding-metric count">
           <span>Instruments</span>
           <strong>{portfolio ? scopedHoldings.length : "—"}</strong>
@@ -172,7 +190,7 @@ export function HoldingsPage() {
         </article>
       </section>
 
-      <section className="panel holdings-panel">
+      <section className="panel holdings-panel" id="holdings-instruments">
         <div className="holdings-toolbar">
           <div>
             <p className="toolbar-label">Platform</p>

@@ -25,7 +25,7 @@ function sourceMark(broker: Broker) {
 
 function statusLabel(connection: Connection) {
   if (connection.status === "pending") return "Waiting for data";
-  if (connection.status === "active") return "Up to date";
+  if (connection.status === "active") return connection.is_stale ? "Connected" : "Up to date";
   if (connection.status === "limited") {
     return connection.broker === "trading212_crypto"
       ? "Imported with estimates"
@@ -33,6 +33,16 @@ function statusLabel(connection: Connection) {
   }
   if (connection.status === "error") return "Needs attention";
   return "Disabled";
+}
+
+function freshnessLabel(connection: Connection, isCsv: boolean) {
+  if (connection.freshness_status === "never_synced") return "No successful sync";
+  if (connection.freshness_status === "stale") return "Stale data";
+  return isCsv ? "Imported data" : "Fresh data";
+}
+
+function timestamp(value: string | null) {
+  return value ? new Date(value).toLocaleString() : "Not yet";
 }
 
 export function ConnectionsPage() {
@@ -214,15 +224,31 @@ export function ConnectionsPage() {
                       <span className={`status ${connection.status}`}>
                         {statusLabel(connection)}
                       </span>
+                      <span
+                        className={`freshness ${connection.freshness_status}`}
+                        title={
+                          connection.stale_after
+                            ? `Considered stale after ${timestamp(connection.stale_after)}`
+                            : undefined
+                        }
+                      >
+                        <span aria-hidden="true" />
+                        {freshnessLabel(connection, isCsv)}
+                      </span>
                     </div>
                     <small>
                       {isCsv
                         ? "CSV import"
                         : `Credential ${connection.credential_hint.replace("••••", "ending ")}`}
-                      {connection.last_synced_at
-                        ? ` · Updated ${new Date(connection.last_synced_at).toLocaleString()}`
-                        : " · Not updated yet"}
                     </small>
+                    <div className="connection-timestamps">
+                      <span>
+                        {isCsv ? "Last import" : "Last successful sync"}: {timestamp(connection.last_successful_sync_at)}
+                      </span>
+                      {connection.status === "error" && connection.last_sync_attempt_at && (
+                        <span>Last attempt: {timestamp(connection.last_sync_attempt_at)}</span>
+                      )}
+                    </div>
                     {connection.last_error && (
                       <p
                         className={

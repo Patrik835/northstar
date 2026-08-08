@@ -11,6 +11,7 @@ from app.models.enums import Broker, ConnectionStatus
 
 if TYPE_CHECKING:
     from app.models.portfolio import PortfolioSnapshot, Position, Transaction
+    from app.models.sync import SyncRun
 
 
 class BrokerConnection(Base):
@@ -28,6 +29,12 @@ class BrokerConnection(Base):
         Enum(ConnectionStatus, native_enum=False, length=32), default=ConnectionStatus.PENDING
     )
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_sync_attempt_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_successful_sync_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
@@ -40,5 +47,8 @@ class BrokerConnection(Base):
         back_populates="connection", cascade="all, delete-orphan"
     )
     transactions: Mapped[list["Transaction"]] = relationship(
+        back_populates="connection", cascade="all, delete-orphan"
+    )
+    sync_runs: Mapped[list["SyncRun"]] = relationship(
         back_populates="connection", cascade="all, delete-orphan"
     )

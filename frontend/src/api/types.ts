@@ -29,6 +29,11 @@ export type Connection = {
   status: "pending" | "active" | "limited" | "error" | "disabled";
   last_error: string | null;
   last_synced_at: string | null;
+  last_sync_attempt_at: string | null;
+  last_successful_sync_at: string | null;
+  freshness_status: "never_synced" | "fresh" | "stale";
+  is_stale: boolean;
+  stale_after: string | null;
 };
 
 export type ConnectionGuide = {
