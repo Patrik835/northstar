@@ -39,6 +39,8 @@ class HoldingSource(BaseModel):
     current_value: Decimal
     currency: str
     current_value_eur: Decimal
+    reported_pnl: Decimal | None
+    reported_pnl_eur: Decimal | None
     instrument_percentage: Decimal
     last_synced_at: datetime | None
 

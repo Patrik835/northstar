@@ -371,6 +371,14 @@ function HoldingDetails({ holding }: { holding: ScopedHolding }) {
                 <dt>Original value</dt>
                 <dd>{originalMoney(source.current_value, source.currency)}</dd>
               </div>
+              {source.reported_pnl !== null && (
+                <div>
+                  <dt>eToro P/L</dt>
+                  <dd className={Number(source.reported_pnl) >= 0 ? "positive" : "negative"}>
+                    {originalMoney(source.reported_pnl, source.currency)}
+                  </dd>
+                </div>
+              )}
               <div>
                 <dt>Provider ID</dt>
                 <dd title={source.provider_instrument_id}>{source.provider_instrument_id}</dd>

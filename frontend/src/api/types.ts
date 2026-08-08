@@ -20,7 +20,11 @@ export type DashboardSummary = {
   data_notice: string | null;
 };
 
-export type Broker = "trading212" | "trading212_crypto" | "etoro" | "binance";
+export type Broker =
+  | "trading212"
+  | "trading212_crypto"
+  | "etoro"
+  | "binance";
 
 export type Connection = {
   id: string;
@@ -70,6 +74,8 @@ export type HoldingSource = {
   current_value: string;
   currency: string;
   current_value_eur: string;
+  reported_pnl: string | null;
+  reported_pnl_eur: string | null;
   instrument_percentage: string;
   last_synced_at: string | null;
 };

@@ -150,3 +150,25 @@ async def test_resolver_combines_crypto_symbols_across_platforms() -> None:
     assert binance.id == etoro.id
     assert len(session.instruments) == 1
     assert len(session.aliases) == 2
+
+
+@pytest.mark.asyncio
+async def test_resolver_replaces_old_guess_with_verified_asset_type() -> None:
+    session = ResolverSession()
+    resolver = InstrumentResolver(session)  # type: ignore[arg-type]
+    instrument = await resolver.resolve(
+        Broker.TRADING212,
+        _position("US0378331005", "AAPL_US_EQ", AssetType.ETF),
+    )
+
+    corrected = await resolver.resolve(
+        Broker.TRADING212,
+        _position("US0378331005", "AAPL_US_EQ", AssetType.STOCK),
+    )
+    await resolver.resolve(
+        Broker.TRADING212,
+        _position("US0378331005", "AAPL_US_EQ", AssetType.OTHER),
+    )
+
+    assert corrected.id == instrument.id
+    assert corrected.asset_type is AssetType.STOCK

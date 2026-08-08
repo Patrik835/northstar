@@ -11,7 +11,7 @@ from app.models.enums import Broker, ConnectionStatus
 
 if TYPE_CHECKING:
     from app.models.portfolio import PortfolioSnapshot, Position, Transaction
-    from app.models.sync import SyncRun
+    from app.models.sync import SyncCursor, SyncRun
 
 
 class BrokerConnection(Base):
@@ -50,5 +50,8 @@ class BrokerConnection(Base):
         back_populates="connection", cascade="all, delete-orphan"
     )
     sync_runs: Mapped[list["SyncRun"]] = relationship(
+        back_populates="connection", cascade="all, delete-orphan"
+    )
+    sync_cursors: Mapped[list["SyncCursor"]] = relationship(
         back_populates="connection", cascade="all, delete-orphan"
     )

@@ -15,6 +15,10 @@ class ConnectionCreate(BaseModel):
     credentials: dict[str, str] = Field(min_length=1)
 
 
+class ConnectionCredentialsUpdate(BaseModel):
+    credentials: dict[str, str] = Field(min_length=1)
+
+
 class ConnectionRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

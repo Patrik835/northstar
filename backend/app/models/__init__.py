@@ -3,7 +3,7 @@ from app.models.content import AIRecommendation, ChatMessage, NewsItem, news_ite
 from app.models.instrument import Instrument, InstrumentAlias
 from app.models.market_data import FxRate
 from app.models.portfolio import PortfolioSnapshot, Position, Transaction
-from app.models.sync import SyncRun
+from app.models.sync import SyncCursor, SyncRun
 from app.models.user import EmailVerificationToken, User, UserProfile, UserSession
 
 __all__ = [
@@ -19,6 +19,7 @@ __all__ = [
     "Position",
     "Transaction",
     "SyncRun",
+    "SyncCursor",
     "User",
     "UserProfile",
     "UserSession",

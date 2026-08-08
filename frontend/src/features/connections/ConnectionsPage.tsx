@@ -49,8 +49,10 @@ export function ConnectionsPage() {
   const [connections, setConnections] = useState<Connection[]>([]);
   const [guides, setGuides] = useState<ConnectionGuide[]>([]);
   const [selected, setSelected] = useState<ConnectionGuide | null>(null);
+  const [reconnecting, setReconnecting] = useState<Connection | null>(null);
   const [message, setMessage] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<SourceFilter>("all");
 
@@ -79,6 +81,34 @@ export function ConnectionsPage() {
     });
   }, [connections, filter, guides, query]);
 
+  const automaticConnectionCount = useMemo(
+    () =>
+      connections.filter((connection) =>
+        guides.some(
+          (guide) =>
+            guide.broker === connection.broker && guide.connection_type === "api",
+        ),
+      ).length,
+    [connections, guides],
+  );
+
+  function closeModal() {
+    setSelected(null);
+    setReconnecting(null);
+  }
+
+  function openSource(guide: ConnectionGuide) {
+    setReconnecting(null);
+    setSelected(guide);
+  }
+
+  function openReconnect(connection: Connection, guide: ConnectionGuide) {
+    setOpenMenuId(null);
+    setReconnecting(connection);
+    setSelected(guide);
+    setMessage("");
+  }
+
   async function submitApi(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selected) return;
@@ -86,18 +116,29 @@ export function ConnectionsPage() {
     const credentials = Object.fromEntries(
       selected.credential_fields.map((field) => [field, String(data.get(field))]),
     );
-    setBusyId(selected.broker);
+    const busyKey = reconnecting?.id ?? selected.broker;
+    setBusyId(busyKey);
     try {
-      const connection = await api<Connection>("/connections", {
-        method: "POST",
-        body: JSON.stringify({ broker: selected.broker, credentials }),
-      });
-      setSelected(null);
+      const connection = reconnecting
+        ? await api<Connection>(`/connections/${reconnecting.id}/credentials`, {
+            method: "PUT",
+            body: JSON.stringify({ credentials }),
+          })
+        : await api<Connection>("/connections", {
+            method: "POST",
+            body: JSON.stringify({ broker: selected.broker, credentials }),
+          });
+      const wasReconnect = reconnecting !== null;
+      closeModal();
       setMessage(
         connection.status === "active"
-          ? `${names[connection.broker]} connected and portfolio imported.`
+          ? wasReconnect
+            ? `${names[connection.broker]} credentials replaced and portfolio updated.`
+            : `${names[connection.broker]} connected and portfolio imported.`
           : connection.status === "limited"
-            ? `${names[connection.broker]} imported with limited history access.`
+            ? wasReconnect
+              ? `${names[connection.broker]} credentials replaced; history access is limited.`
+              : `${names[connection.broker]} imported with limited history access.`
             : connection.last_error || "The connection was saved but needs attention.",
       );
       await refresh();
@@ -123,7 +164,7 @@ export function ConnectionsPage() {
         "/connections/imports/trading212-crypto",
         { method: "POST", body: form },
       );
-      setSelected(null);
+      closeModal();
       setMessage(
         `Imported ${result.positions_imported} crypto holding${
           result.positions_imported === 1 ? "" : "s"
@@ -161,7 +202,36 @@ export function ConnectionsPage() {
     }
   }
 
+  async function syncAll() {
+    setBusyId("all");
+    setOpenMenuId(null);
+    setMessage("");
+    try {
+      const results = await api<Connection[]>("/connections/sync-all", {
+        method: "POST",
+      });
+      const failed = results.filter((connection) => connection.status === "error").length;
+      setMessage(
+        results.length === 0
+          ? "There are no automatic sources to synchronize."
+          : failed > 0
+            ? `${results.length - failed} source${
+                results.length - failed === 1 ? "" : "s"
+              } updated; ${failed} need${failed === 1 ? "s" : ""} attention.`
+            : `All ${results.length} automatic source${
+                results.length === 1 ? "" : "s"
+              } updated.`,
+      );
+      await refresh();
+    } catch (reason) {
+      setMessage(reason instanceof Error ? reason.message : "Could not synchronize sources");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   async function remove(connection: Connection) {
+    setOpenMenuId(null);
     if (!window.confirm(`Remove ${names[connection.broker]} and all of its imported data?`)) {
       return;
     }
@@ -193,9 +263,6 @@ export function ConnectionsPage() {
             and combines matching investments in Holdings.
           </p>
         </div>
-        <span className="as-of">
-          {connections.length} active source{connections.length === 1 ? "" : "s"}
-        </span>
       </header>
 
       {message && <p className="notice">{message}</p>}
@@ -207,12 +274,27 @@ export function ConnectionsPage() {
               <p className="eyebrow">Your data</p>
               <h2>Connected sources</h2>
             </div>
-            <span>{connections.length}</span>
+            <div className="section-heading-actions">
+              <span className="connection-count">{connections.length}</span>
+              <button
+                className="secondary"
+                disabled={busyId !== null || automaticConnectionCount === 0}
+                title={
+                  automaticConnectionCount > 0
+                    ? "Synchronize all automatic sources"
+                    : "No automatic sources connected"
+                }
+                onClick={() => void syncAll()}
+              >
+                {busyId === "all" ? "Syncing all…" : "Sync all now"}
+              </button>
+            </div>
           </div>
           <div className="connected-list">
             {connections.map((connection) => {
               const guide = guideFor(connection.broker);
               const isCsv = guide?.connection_type === "csv";
+              const isBusy = busyId === connection.id || busyId === "all";
               return (
                 <article className="connected-row" key={connection.id}>
                   <span className={`compact-source-mark ${connection.broker}`}>
@@ -263,27 +345,69 @@ export function ConnectionsPage() {
                   </div>
                   <div className="connected-actions">
                     {isCsv ? (
-                      <button className="secondary" onClick={() => guide && setSelected(guide)}>
+                      <button
+                        className="secondary"
+                        disabled={isBusy}
+                        onClick={() => guide && openSource(guide)}
+                      >
                         Import newer CSV
                       </button>
                     ) : (
                       <button
                         className="secondary"
-                        disabled={busyId === connection.id}
+                        disabled={isBusy}
                         onClick={() => void sync(connection)}
                       >
                         {busyId === connection.id ? "Syncing…" : "Sync now"}
                       </button>
                     )}
-                    <button
-                      className="icon-button danger"
-                      aria-label={`Remove ${names[connection.broker]}`}
-                      title="Remove source"
-                      disabled={busyId === connection.id}
-                      onClick={() => void remove(connection)}
+                    <div
+                      className="connection-menu"
+                      onBlur={(event) => {
+                        if (!event.currentTarget.contains(event.relatedTarget)) {
+                          setOpenMenuId(null);
+                        }
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Escape") setOpenMenuId(null);
+                      }}
                     >
-                      ×
-                    </button>
+                      <button
+                        className="icon-button"
+                        aria-label={`More options for ${names[connection.broker]}`}
+                        aria-haspopup="menu"
+                        aria-expanded={openMenuId === connection.id}
+                        title="Connection options"
+                        disabled={isBusy}
+                        onClick={() =>
+                          setOpenMenuId((current) =>
+                            current === connection.id ? null : connection.id,
+                          )
+                        }
+                      >
+                        ⋯
+                      </button>
+                      {openMenuId === connection.id && (
+                        <div className="connection-menu-popover" role="menu">
+                          {!isCsv && (
+                            <button
+                              role="menuitem"
+                              disabled={!guide}
+                              onClick={() => guide && openReconnect(connection, guide)}
+                            >
+                              Replace credentials
+                            </button>
+                          )}
+                          <button
+                            className="danger"
+                            role="menuitem"
+                            onClick={() => void remove(connection)}
+                          >
+                            Remove source
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </article>
               );
@@ -348,7 +472,7 @@ export function ConnectionsPage() {
                   {current && guide.connection_type === "api" ? (
                     <span className="catalog-connected">Connected</span>
                   ) : (
-                    <button className="secondary" onClick={() => setSelected(guide)}>
+                    <button className="secondary" onClick={() => openSource(guide)}>
                       {current ? "Import again" : guide.connection_type === "csv" ? "Import" : "Connect"}
                     </button>
                   )}
@@ -365,9 +489,10 @@ export function ConnectionsPage() {
       </section>
 
       {selected && (
-        <div className="modal-backdrop" onMouseDown={() => setSelected(null)}>
+        <div className="modal-backdrop" onMouseDown={closeModal}>
           <form
-            className="modal connection-modal"
+            key={reconnecting ? `replace:${reconnecting.id}` : `connect:${selected.broker}`}
+            className={`modal connection-modal${reconnecting ? " reconnect-modal" : ""}`}
             onSubmit={selected.connection_type === "csv" ? submitCsv : submitApi}
             onMouseDown={(event) => event.stopPropagation()}
           >
@@ -377,28 +502,63 @@ export function ConnectionsPage() {
               </span>
               <div>
                 <p className="eyebrow">
-                  {selected.connection_type === "csv" ? "Secure import" : "Secure connection"}
+                  {selected.connection_type === "csv"
+                    ? "Secure import"
+                    : reconnecting
+                      ? "Replace credentials"
+                      : "Secure connection"}
                 </p>
                 <h2>{names[selected.broker]}</h2>
               </div>
             </div>
-            <div className="security-callout">{selected.security_notice}</div>
-            <section className="setup-guide">
-              <h3>{selected.connection_type === "csv" ? "Prepare your export" : "How to get your keys"}</h3>
-              <ol>
-                {selected.setup_steps.map((step) => (
-                  <li key={step}>{step}</li>
-                ))}
-              </ol>
-              <a
-                className="official-guide-link"
-                href={selected.tutorial_url}
-                target="_blank"
-                rel="noreferrer"
+            {reconnecting ? (
+              <p className="reconnect-note">
+                Your current key stays active until the replacement is verified.
+              </p>
+            ) : (
+              <div className="security-callout">{selected.security_notice}</div>
+            )}
+            {reconnecting && (
+              <section
+                className="setup-guide replacement-key-help"
+                aria-label="Replacement key instructions"
               >
-                View the official guide <span>↗</span>
-              </a>
-            </section>
+                <h3>Need help creating a replacement key?</h3>
+                <ol>
+                  {selected.setup_steps.map((step) => (
+                    <li key={step}>{step}</li>
+                  ))}
+                </ol>
+                <a
+                  className="official-guide-link"
+                  href={selected.tutorial_url}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  View the official guide <span>↗</span>
+                </a>
+              </section>
+            )}
+            {!reconnecting && (
+              <section className="setup-guide">
+                <h3>
+                  {selected.connection_type === "csv" ? "Prepare your export" : "Get your keys"}
+                </h3>
+                <ol>
+                  {selected.setup_steps.map((step) => (
+                    <li key={step}>{step}</li>
+                  ))}
+                </ol>
+                <a
+                  className="official-guide-link"
+                  href={selected.tutorial_url}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  View the official guide <span>↗</span>
+                </a>
+              </section>
+            )}
 
             {selected.connection_type === "csv" ? (
               <label className="csv-dropzone">
@@ -409,28 +569,35 @@ export function ConnectionsPage() {
               </label>
             ) : (
               <div className="credential-fields">
-                <h3>Enter your credentials</h3>
+                <h3>{reconnecting ? "New credentials" : "Enter your credentials"}</h3>
                 {selected.credential_fields.map((field) => (
                   <label key={field}>
                     {selected.credential_labels[field] ?? field.replaceAll("_", " ")}
-                    <input name={field} type="password" autoComplete="off" required />
+                    <input name={field} type="password" autoComplete="new-password" required />
                   </label>
                 ))}
               </div>
             )}
 
             <div className="button-row">
-              <button type="button" className="text-button" onClick={() => setSelected(null)}>
+              <button type="button" className="text-button" onClick={closeModal}>
                 Cancel
               </button>
-              <button className="primary" disabled={busyId === selected.broker}>
-                {busyId === selected.broker
+              <button
+                className="primary"
+                disabled={busyId === (reconnecting?.id ?? selected.broker)}
+              >
+                {busyId === (reconnecting?.id ?? selected.broker)
                   ? selected.connection_type === "csv"
                     ? "Importing…"
-                    : "Connecting…"
+                    : reconnecting
+                      ? "Replacing…"
+                      : "Connecting…"
                   : selected.connection_type === "csv"
                     ? "Validate & import"
-                    : "Encrypt & connect"}
+                    : reconnecting
+                      ? "Validate & replace"
+                      : "Encrypt & connect"}
               </button>
             </div>
           </form>

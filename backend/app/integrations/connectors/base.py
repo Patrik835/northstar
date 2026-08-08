@@ -42,6 +42,7 @@ class ConnectorPosition:
     currency: str
     canonical_symbol: str | None = None
     isin: str | None = None
+    reported_pnl: Decimal | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,10 +58,17 @@ class ConnectorTransaction:
 
 
 @dataclass(frozen=True, slots=True)
+class ConnectorTransactionPage:
+    transactions: list[ConnectorTransaction]
+    next_page_path: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class ConnectorSnapshot:
     snapshot_date: date
     total_value: Decimal
     currency: str
+    reported_pnl: Decimal | None = None
 
 
 class BrokerConnector(ABC):
@@ -80,6 +88,18 @@ class BrokerConnector(ABC):
     @abstractmethod
     async def fetch_transactions(self, since: datetime | None) -> list[ConnectorTransaction]:
         """Return normalized activity since the requested cursor."""
+
+    def transaction_history_streams(self) -> tuple[str, ...]:
+        """Return independently paginated history streams, when supported."""
+
+        return ()
+
+    async def fetch_transaction_page(
+        self, stream: str, page_path: str | None = None
+    ) -> ConnectorTransactionPage:
+        """Fetch one resumable history page for connectors that expose stream cursors."""
+
+        raise NotImplementedError("This connector does not expose paginated transaction history")
 
     async def fetch_snapshot(self, snapshot_date: date) -> ConnectorSnapshot:
         raise NotImplementedError("This connector does not provide dated snapshots")

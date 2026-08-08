@@ -78,6 +78,8 @@ class PortfolioService:
                     current_value=row.position.current_value,
                     currency=row.position.currency,
                     current_value_eur=row.position.current_value_eur,
+                    reported_pnl=row.position.reported_pnl,
+                    reported_pnl_eur=row.position.reported_pnl_eur,
                     instrument_percentage=percentage(row.position.current_value_eur, value),
                     last_synced_at=row.last_synced_at,
                 )

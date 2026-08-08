@@ -12,6 +12,6 @@ def test_registry_resolves_connector_without_core_changes() -> None:
     assert isinstance(connector, BinanceConnector)
 
 
-def test_manual_source_has_no_live_connector() -> None:
-    with pytest.raises(ValueError, match="No connector registered"):
-        ConnectorRegistry().create(Broker.XTB_MANUAL, {})
+def test_manual_stock_source_is_not_part_of_the_broker_domain() -> None:
+    with pytest.raises(ValueError, match="not a valid Broker"):
+        Broker("xtb_manual")

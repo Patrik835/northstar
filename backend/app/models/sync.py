@@ -2,7 +2,17 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Integer, Text, func
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -55,3 +65,29 @@ class SyncRun(Base):
     )
 
     connection: Mapped["BrokerConnection"] = relationship(back_populates="sync_runs")
+
+
+class SyncCursor(Base):
+    __tablename__ = "sync_cursors"
+    __table_args__ = (
+        UniqueConstraint(
+            "broker_connection_id", "stream", name="uq_sync_cursor_connection_stream"
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    broker_connection_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("broker_connections.id", ondelete="CASCADE"),
+        index=True,
+    )
+    stream: Mapped[str] = mapped_column(String(32))
+    next_page_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    backfill_complete: Mapped[bool] = mapped_column(Boolean, default=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    connection: Mapped["BrokerConnection"] = relationship(back_populates="sync_cursors")

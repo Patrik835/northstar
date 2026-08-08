@@ -1,6 +1,6 @@
 # Northstar Investment OS — Product and Technical Requirements
 
-> Last reviewed: 2026-08-06
+> Last reviewed: 2026-08-08
 
 > Detailed implementation backlog: [NORTHSTAR_ROADMAP.md](NORTHSTAR_ROADMAP.md)
 
@@ -32,8 +32,8 @@ and APIs must support a later move to managed cloud infrastructure without a rew
 
 ### 1.2 Product Promise
 
-- **Complete:** supported APIs plus CSV/manual fallbacks let users represent their full
-  investment portfolio.
+- **Complete:** supported APIs and carefully selected provider-native imports cover the
+  automated portfolio; purpose-built manual workflows later cover assets such as property.
 - **Trustworthy:** values are traceable to a source, calculations are deterministic, and
   stale, missing, estimated, or partially imported data is clearly labelled.
 - **Current:** automated accounts refresh every 1–2 hours at launch, support manual
@@ -64,11 +64,12 @@ required outcome of each product phase.
 - Production-ready Trading 212, Binance Spot, and eToro read-only connections.
 - Periodic position/value synchronization every 60–120 minutes, defaulting to 120
   minutes, plus user-triggered refresh.
-- Current eToro positions/value plus retained month-end snapshots.
+- Current eToro positions, cash, value, and broker-reported P&L plus retained month-end snapshots.
 - Canonical instruments so the same holding is aggregated correctly across sources.
 - Dated ECB FX rates and EUR conversion while preserving original currencies.
-- Complete, resumable transaction imports with deduplication and reconciliation.
-- CSV imports and manual holdings/transactions for unsupported brokers.
+- Complete, resumable transaction imports with automatic deduplication and reconciliation.
+- Provider-specific CSV import only where a valuable account cannot be connected through
+  an official supported API, initially Trading 212 Crypto.
 - Visible freshness, sync progress, partial-import warnings, and safe error recovery.
 
 ### Phase 2 — Portfolio Analytics and Dashboard
@@ -221,15 +222,23 @@ errors; provider-specific payloads do not leak into route handlers or the fronte
 - Live Invest/Stocks ISA API with HTTP Basic authentication using API key and secret.
 - Import current positions, cash, orders/fills, dividends, deposits, withdrawals, and
   fees exposed by the account.
-- Existing implementation is the baseline but must add history pagination/backfill,
-  resumable cursors, rate-limit-aware retry, canonical instruments, and non-EUR support.
+- Orders/fills, dividends, and cash movements use provider `nextPagePath` pagination,
+  per-stream resumable cursors, bounded pages per run, and idempotent transaction storage.
+- Rate-limit-aware retry, canonical instruments, non-EUR support, and verified asset types
+  from Trading 212 instrument metadata are implemented; deeper reconciliation remains.
 - Keys must be read-only and include the history permissions needed for activity import.
 
 ### 6.3 Binance
 
 - Official Binance Spot REST API using a signed read-only API key.
-- Import non-zero Spot balances, held-asset prices, trades, deposits, withdrawals, fees,
-  and supported income events.
+- Import non-zero Spot balances; discoverable Spot trades; trade and withdrawal fees;
+  completed deposits and withdrawals; and positive asset-distribution income events.
+- Use stable provider-derived transaction identifiers, a versioned one-time activity
+  backfill for existing connections, overlap-safe incremental synchronization, and the
+  provider's documented history windows and pagination limits.
+- Discover trade symbols from current balances plus assets seen in transfers and income.
+  Binance requires a symbol for Spot trade history, so fully sold-out assets with no other
+  discoverable account record remain part of the deeper full-history/reconciliation work.
 - Resolve assets through EUR or safe intermediate quote pairs and clearly mark assets
   that cannot be priced.
 - Users must be instructed to enable Reading only and disable trading, futures, margin,
@@ -240,21 +249,27 @@ errors; provider-specific payloads do not leak into route handlers or the fronte
 - Official public API with `x-api-key`, `x-user-key`, and unique `x-request-id` headers.
 - Users create a Real-environment key with read permission only.
 - Import current positions, cash, portfolio value, and P&L where exposed by the API.
+- Read eToro's dedicated Real-account P&L response, aggregate its open position lines by
+  instrument, retain copy-portfolio P&L where exposed, and store both provider-currency
+  and ECB-converted EUR values on current positions and daily snapshots. Keep these
+  nullable and explicitly broker-reported rather than treating them as calculated returns.
 - Refresh with other live connections and retain a reliable last-trading-day snapshot
   for each month.
 
-### 6.5 CSV and Manual Data
+### 6.5 Provider-Specific CSV Data
 
-- CSV is a first-class fallback for unsupported brokers, not an emergency-only tool.
+- CSV is used selectively when an important provider account has no usable official API;
+  Northstar does not ask users to maintain generic stock or crypto records manually.
 - Trading 212 Crypto uses its official History CSV export because Trading 212's Public API
   currently supports only Invest and Stocks ISA accounts. Imports reconstruct crypto
   holdings, deduplicate overlapping files, retain transaction provenance, and label
   last-trade-price valuation fallbacks.
-- Imports provide reusable templates, column mapping, validation preview, duplicate
-  detection, atomic commit, and a downloadable error report.
-- Manual holdings and transactions support unsupported stock/ETF/crypto accounts.
-- XTB remains API-excluded unless an official supported API returns; it is covered by
-  CSV/manual workflows.
+- Each supported CSV source owns its mapping, validation, duplicate detection, and atomic
+  import workflow so users can upload the provider's native export without reformatting it.
+- Manual entry is reserved for Phase 4 assets that are naturally manually valued, starting
+  with real estate. Unsupported stock/ETF/crypto brokers are not represented through
+  generic manual holdings or transaction forms.
+- XTB remains excluded until an official API or a dedicated low-effort import is added.
 
 ### 6.6 Synchronization Policy
 
@@ -262,6 +277,9 @@ errors; provider-specific payloads do not leak into route handlers or the fronte
   `60` and `120` for the initial deployment unless provider limits require a slower rate.
 - Users can request a manual refresh, subject to per-provider rate limits and job
   deduplication.
+- Users can replace credentials on an existing live connection. Saved secrets are never
+  returned or prefilled; replacements are provider-validated before encrypted storage and
+  trigger an immediate synchronization without deleting historical portfolio data.
 - Current positions are updated on each successful sync; consolidated historical charts
   retain one end-of-day valuation.
 - Scheduler jobs use single-instance/coalescing behavior and expose run status.
@@ -402,14 +420,14 @@ Status meanings:
 | Login sessions, password hashing/change, account lockout | Complete | Opaque cookie sessions, Argon2, password change, and five-attempt lockout exist. |
 | Public-release auth/privacy hardening | Planned | IP throttling, reset flow, optional 2FA, privacy controls, export, and deletion remain. |
 | Admin user management | Complete | Admin can list and create users. |
-| Encrypted broker credentials and setup guides | Complete | AES-256-GCM, masked hints, delete flow, and read-only guidance exist. |
+| Encrypted broker credentials and setup guides | Complete | AES-256-GCM, masked hints, read-only guidance, deletion, and provider-validated credential replacement exist. Reconnect responses/forms never expose or prefill saved secrets. |
 | Multiple labelled accounts per provider | Planned | Current schema permits only one connection per user/provider. |
-| Trading 212 current positions, cash, recent activity, and snapshot | Partial | Live connector, canonical instruments, EUR conversion, and rate-limit-aware retry work; full pagination and resumable cursoring remain. |
-| Binance Spot connector | Partial | Signed read-only authentication, Spot balances, EUR valuation through available market pairs, held-asset trades/fees, snapshots, manual refresh, scheduling, and mocked API tests exist. Real-account smoke testing plus deposits, withdrawals, income, sold-out-symbol discovery, and resumable full-history backfill remain. |
-| eToro periodic connector and month-end history | Partial | Public API authentication, aggregate positions/cash/copy value, instrument metadata, closed-trade history, valuations, manual/periodic/month-end sync, and mocked API tests exist. Real-account smoke testing, broader history reconciliation, and exact coverage of all eToro portfolio products remain. |
-| CSV/manual stock, ETF, and crypto data | Partial | Trading 212 Crypto CSV upload, validation, duplicate protection, transaction storage, holdings reconstruction, current-price/fallback valuation, snapshots, and repeat-import UI work. Generic mapping/preview, error downloads, other templates, persisted import jobs, and manual CRUD remain. |
+| Trading 212 current positions, cash, recent activity, and snapshot | Partial | Live connector, canonical instruments with provider-verified stock/ETF types, EUR conversion, rate-limit-aware retry, paginated orders/dividends/cash history, resumable per-stream cursors, and idempotency coverage work. Real-account backfill verification and deeper reconciliation remain. |
+| Binance Spot connector | Partial | Signed read-only authentication, Spot balances, EUR valuation, discoverable Spot-pair trades, trade/withdrawal fees, completed deposits/withdrawals, asset distributions, stable deduplication, one-time upgrade backfill, snapshots, refresh/scheduling, and mocked contracts exist. Real-account reconciliation and Binance's symbol-constrained fully sold-out/full-history gap remain. |
+| eToro periodic connector and month-end history | Partial | Public API authentication, aggregate positions/cash/copy value, instrument metadata, dedicated Real-account P&L enrichment, provider/EUR P&L persistence on positions and snapshots, closed-trade history, valuations, manual/periodic/month-end sync, and mocked contracts exist. Broader history reconciliation and exact coverage of every eToro product remain. |
+| Provider-specific CSV data | Complete | Trading 212 Crypto CSV upload, validation, duplicate protection, transaction storage, holdings reconstruction, current-price/fallback valuation, snapshots, and repeat-import UI work. Generic stock/crypto CSV and manual entry are intentionally out of scope. |
 | Canonical instruments and broker aliases | Complete | Global instruments retain ISIN/symbol identity while provider aliases preserve Trading 212 Invest, Trading 212 Crypto, Binance, and eToro identifiers. Sync/import resolution combines matching securities and crypto across platforms. |
-| Data-quality and reconciliation model | Planned | Canonical matching exists; persisted reconciliation issues, confidence/override workflows, and source-total checks remain. |
+| Automatic data-quality and reconciliation | Planned | Canonical matching and Trading 212 Crypto import deduplication exist. Future checks should run as part of synchronization and only ask users to act when necessary. |
 | ECB FX conversion and market-data cache | Complete | ECB working-day rates are fetched, persisted by publication date, cached in-process and across processes, looked up by date, converted through EUR, and backed by the newest stored rate set during temporary ECB failures. A daily refresh supplements on-demand fetching. |
 | Scheduled synchronization | Partial | APScheduler refreshes Trading 212, Binance, and eToro every 120 minutes by default and adds eToro month-end and daily ECB runs. Connection syncs persist running/success/partial/error status, triggers, counts, timestamps, and safe details. Safe GET requests use bounded exponential backoff for transient failures and honor provider cooldown headers; stuck-run recovery and distributed-worker safety remain. |
 | Connection freshness visibility | Complete | Connection cards distinguish fresh, stale, and never-synchronized sources, show the last successful sync/import, preserve it across failures, and show the latest failed attempt. Live sources become stale after two configured synchronization intervals. |

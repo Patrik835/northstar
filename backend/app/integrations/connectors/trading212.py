@@ -1,6 +1,9 @@
+import hashlib
+import time
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -12,16 +15,25 @@ from app.integrations.connectors.base import (
     ConnectorPosition,
     ConnectorSnapshot,
     ConnectorTransaction,
+    ConnectorTransactionPage,
     InvalidBrokerCredentials,
 )
 from app.integrations.connectors.retry import request_with_backoff, retry_after_seconds
 from app.models.enums import AssetType, TransactionType
+
+INSTRUMENT_METADATA_CACHE_SECONDS = 600
+_instrument_type_cache: dict[str, tuple[float, dict[str, AssetType]]] = {}
 
 
 class Trading212Connector(BrokerConnector):
     """Read-only adapter for Trading 212's live Invest/Stocks ISA API."""
 
     base_url = "https://live.trading212.com/api/v0"
+    history_paths = {
+        "orders": "/equity/history/orders",
+        "dividends": "/equity/history/dividends",
+        "cash": "/equity/history/transactions",
+    }
 
     def __init__(
         self,
@@ -31,6 +43,7 @@ class Trading212Connector(BrokerConnector):
         super().__init__(credentials)
         self._transport = transport
         self._account_summary: dict[str, Any] | None = None
+        self._instrument_types: dict[str, AssetType] | None = None
 
     def _client(self) -> httpx.AsyncClient:
         return httpx.AsyncClient(
@@ -113,6 +126,7 @@ class Trading212Connector(BrokerConnector):
         payload = await self._get("/equity/positions")
         if not isinstance(payload, list):
             raise BrokerUnavailableError("Trading 212 returned invalid portfolio information.")
+        instrument_types = await self._load_instrument_types()
 
         positions: list[ConnectorPosition] = []
         for item in payload:
@@ -126,11 +140,7 @@ class Trading212Connector(BrokerConnector):
                     instrument_id=str(isin or ticker),
                     ticker=ticker,
                     name=name,
-                    asset_type=(
-                        AssetType.ETF
-                        if "ETF" in str(name).upper() or "UCITS" in str(name).upper()
-                        else AssetType.STOCK
-                    ),
+                    asset_type=instrument_types.get(ticker.upper(), AssetType.OTHER),
                     quantity=Decimal(str(item.get("quantity", 0))),
                     average_price=_decimal_or_none(item.get("averagePricePaid")),
                     current_value=Decimal(str(wallet.get("currentValue", 0))),
@@ -163,16 +173,95 @@ class Trading212Connector(BrokerConnector):
             )
         return positions
 
+    async def _load_instrument_types(self) -> dict[str, AssetType]:
+        if self._instrument_types is not None:
+            return self._instrument_types
+
+        cache_key = hashlib.sha256(self.credentials["api_key"].encode()).hexdigest()
+        if self._transport is None:
+            cached = _instrument_type_cache.get(cache_key)
+            if cached and time.monotonic() - cached[0] < INSTRUMENT_METADATA_CACHE_SECONDS:
+                self._instrument_types = cached[1]
+                return self._instrument_types
+
+        payload = await self._get("/equity/metadata/instruments")
+        if not isinstance(payload, list):
+            raise BrokerUnavailableError("Trading 212 returned invalid instrument metadata.")
+        self._instrument_types = {
+            str(item["ticker"]).upper(): _asset_type_from_metadata(item.get("type"))
+            for item in payload
+            if isinstance(item, dict) and item.get("ticker")
+        }
+        if self._transport is None:
+            _instrument_type_cache[cache_key] = (time.monotonic(), self._instrument_types)
+        return self._instrument_types
+
     async def fetch_transactions(self, since: datetime | None) -> list[ConnectorTransaction]:
-        orders, dividends, cash_movements = await self._recent_activity()
-        transactions = [
-            *_map_orders(orders),
-            *_map_dividends(dividends),
-            *_map_cash(cash_movements),
+        pages = [
+            await self.fetch_transaction_page(stream)
+            for stream in self.transaction_history_streams()
         ]
+        transactions = [item for page in pages for item in page.transactions]
         if since:
             transactions = [item for item in transactions if item.executed_at > since]
         return transactions
+
+    def transaction_history_streams(self) -> tuple[str, ...]:
+        return tuple(self.history_paths)
+
+    async def fetch_transaction_page(
+        self, stream: str, page_path: str | None = None
+    ) -> ConnectorTransactionPage:
+        endpoint = self.history_paths.get(stream)
+        if endpoint is None:
+            raise ValueError(f"Unsupported Trading 212 history stream: {stream}")
+        request_path = page_path or endpoint
+        if page_path is not None:
+            parsed = urlsplit(page_path)
+            expected_path = f"/api/v0{endpoint}"
+            if parsed.scheme or parsed.netloc or parsed.fragment:
+                raise BrokerUnavailableError(
+                    "Trading 212 returned an invalid history continuation. Please try again."
+                )
+            if parsed.path in {expected_path, endpoint, ""}:
+                continuation_query = parsed.query
+            elif "/" not in parsed.path and not parsed.query:
+                # The cash-history API returns a raw query string rather than a path.
+                continuation_query = parsed.path
+            else:
+                raise BrokerUnavailableError(
+                    "Trading 212 returned an invalid history continuation. Please try again."
+                )
+            if not continuation_query:
+                raise BrokerUnavailableError(
+                    "Trading 212 returned an invalid history continuation. Please try again."
+                )
+            # The HTTP client base URL already contains /api/v0. Trading 212 includes
+            # that prefix in some nextPagePath values, while cash history returns only
+            # a query string. Always anchor continuations to the known stream endpoint.
+            request_path = f"{endpoint}?{continuation_query}"
+        payload = await self._get(
+            request_path,
+            None if page_path is not None else {"limit": 50},
+        )
+        if not isinstance(payload, dict) or not isinstance(payload.get("items"), list):
+            raise BrokerUnavailableError(
+                "Trading 212 returned invalid transaction history information."
+            )
+        next_page_path = payload.get("nextPagePath")
+        if next_page_path is not None and not isinstance(next_page_path, str):
+            raise BrokerUnavailableError(
+                "Trading 212 returned an invalid history continuation. Please try again."
+            )
+        mappers = {
+            "orders": _map_orders,
+            "dividends": _map_dividends,
+            "cash": _map_cash,
+        }
+        return ConnectorTransactionPage(
+            transactions=mappers[stream](payload["items"]),
+            next_page_path=next_page_path,
+        )
 
     async def fetch_snapshot(self, snapshot_date: date) -> ConnectorSnapshot:
         summary = await self._summary()
@@ -188,21 +277,19 @@ class Trading212Connector(BrokerConnector):
         assert self._account_summary is not None
         return self._account_summary
 
-    async def _recent_activity(self) -> tuple[list[Any], list[Any], list[Any]]:
-        # The newest page is enough for the dashboard activity feed. Pulling every page
-        # during an HTTP request would violate Trading 212's six-requests/minute limit.
-        orders = await self._get("/equity/history/orders", {"limit": 50})
-        dividends = await self._get("/equity/history/dividends", {"limit": 50})
-        cash = await self._get("/equity/history/transactions", {"limit": 50})
-        return (
-            list((orders or {}).get("items", [])),
-            list((dividends or {}).get("items", [])),
-            list((cash or {}).get("items", [])),
-        )
-
-
 def _decimal_or_none(value: Any) -> Decimal | None:
     return None if value is None else Decimal(str(value))
+
+
+def _asset_type_from_metadata(value: Any) -> AssetType:
+    normalized = str(value or "").upper()
+    if normalized == "ETF":
+        return AssetType.ETF
+    if normalized == "STOCK":
+        return AssetType.STOCK
+    if normalized in {"CRYPTO", "CRYPTOCURRENCY"}:
+        return AssetType.CRYPTO
+    return AssetType.OTHER
 
 
 def _canonical_symbol(ticker: str) -> str:

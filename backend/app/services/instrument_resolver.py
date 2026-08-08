@@ -138,5 +138,5 @@ class InstrumentResolver:
             or len(position.name) > len(instrument.name)
         ):
             instrument.name = position.name
-        if instrument.asset_type is AssetType.STOCK and position.asset_type is AssetType.ETF:
-            instrument.asset_type = AssetType.ETF
+        if position.asset_type is not AssetType.OTHER:
+            instrument.asset_type = position.asset_type

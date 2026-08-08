@@ -45,6 +45,37 @@ def _transport(invalid_credentials: bool = False) -> httpx.MockTransport:
                 },
                 request=request,
             )
+        if request.url.path.endswith("/trading/info/real/pnl"):
+            return httpx.Response(
+                200,
+                json={
+                    "clientPortfolio": {
+                        "positions": [
+                            {
+                                "instrumentID": 1001,
+                                "mirrorID": 0,
+                                "unrealizedPnL": {"pnL": 55},
+                            },
+                            {
+                                "instrumentID": 1001,
+                                "mirrorID": 0,
+                                "unrealizedPnL": {"pnL": -15},
+                            },
+                        ],
+                        "mirrors": [
+                            {
+                                "mirrorID": 77,
+                                "closedPositionsNetProfit": 5,
+                                "positions": [
+                                    {"unrealizedPnL": {"pnL": 20}}
+                                ],
+                            }
+                        ],
+                        "unrealizedPnL": 65,
+                    }
+                },
+                request=request,
+            )
         if request.url.path.endswith("/market-data/instruments"):
             return httpx.Response(
                 200,
@@ -109,13 +140,17 @@ async def test_etoro_maps_current_portfolio_and_history() -> None:
     assert positions[0].ticker == "AAPL"
     assert positions[0].asset_type is AssetType.STOCK
     assert positions[0].current_value == Decimal("500")
+    assert positions[0].reported_pnl == Decimal("40")
     assert positions[1].asset_type is AssetType.CASH
+    assert positions[1].reported_pnl is None
     assert positions[2].instrument_id == "ETORO:COPY:77"
+    assert positions[2].reported_pnl == Decimal("25")
     assert activity[0].transaction_type is TransactionType.SELL
     assert activity[0].value == Decimal("600")
     assert activity[1].transaction_type is TransactionType.FEE
     assert snapshot.total_value == Decimal("850")
     assert snapshot.currency == "USD"
+    assert snapshot.reported_pnl == Decimal("65")
 
 
 @pytest.mark.asyncio

@@ -1,6 +1,14 @@
 from fastapi import APIRouter
 
-from app.api.v1 import admin, auth, connections, dashboard, health, holdings, profile
+from app.api.v1 import (
+    admin,
+    auth,
+    connections,
+    dashboard,
+    health,
+    holdings,
+    profile,
+)
 
 router = APIRouter()
 router.include_router(health.router, tags=["health"])

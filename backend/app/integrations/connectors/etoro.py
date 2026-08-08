@@ -32,6 +32,7 @@ class EtoroConnector(BrokerConnector):
         super().__init__(credentials)
         self._transport = transport
         self._portfolio: dict[str, Any] | None = None
+        self._pnl: dict[str, Any] | None = None
         self._metadata: dict[int, dict[str, Any]] = {}
         self._instrument_types: dict[int, str] | None = None
 
@@ -109,6 +110,46 @@ class EtoroConnector(BrokerConnector):
             raise BrokerUnavailableError("eToro returned incomplete portfolio information.")
         self._portfolio = payload
 
+    async def _load_pnl(self) -> None:
+        if self._pnl is not None:
+            return
+        payload = await self._get("/trading/info/real/pnl")
+        client_portfolio = payload.get("clientPortfolio") if isinstance(payload, dict) else None
+        if not isinstance(client_portfolio, dict):
+            raise BrokerUnavailableError("eToro returned incomplete profit/loss information.")
+        if not isinstance(client_portfolio.get("positions", []), list) or not isinstance(
+            client_portfolio.get("mirrors", []), list
+        ):
+            raise BrokerUnavailableError("eToro returned invalid profit/loss information.")
+        self._pnl = client_portfolio
+
+    def _position_pnl(self) -> dict[int, Decimal]:
+        assert self._pnl is not None
+        totals: dict[int, Decimal] = {}
+        for item in self._pnl.get("positions") or []:
+            instrument_id = item.get("instrumentID") or item.get("instrumentId")
+            if instrument_id is None:
+                continue
+            totals[int(instrument_id)] = totals.get(
+                int(instrument_id), Decimal(0)
+            ) + _reported_pnl(item)
+        return totals
+
+    def _mirror_pnl(self) -> dict[int, Decimal]:
+        assert self._pnl is not None
+        totals: dict[int, Decimal] = {}
+        for mirror in self._pnl.get("mirrors") or []:
+            mirror_id = mirror.get("mirrorID") or mirror.get("mirrorId")
+            if mirror_id is None:
+                continue
+            position_pnl = sum(
+                (_reported_pnl(item) for item in mirror.get("positions") or []),
+                Decimal(0),
+            )
+            closed_profit = Decimal(str(mirror.get("closedPositionsNetProfit", 0)))
+            totals[int(mirror_id)] = position_pnl + closed_profit
+        return totals
+
     async def _load_metadata(self, instrument_ids: set[int]) -> None:
         missing = instrument_ids - self._metadata.keys()
         if not missing:
@@ -155,7 +196,10 @@ class EtoroConnector(BrokerConnector):
 
     async def fetch_positions(self) -> list[ConnectorPosition]:
         await self.validate_credentials()
+        await self._load_pnl()
         assert self._portfolio is not None
+        position_pnl = self._position_pnl()
+        mirror_pnl = self._mirror_pnl()
         aggregates = list(self._portfolio.get("instrumentAggregates") or [])
         instrument_ids = {
             int(item["instrumentId"])
@@ -190,6 +234,7 @@ class EtoroConnector(BrokerConnector):
                     current_value=current_value,
                     currency=currency,
                     canonical_symbol=ticker,
+                    reported_pnl=position_pnl.get(instrument_id),
                 )
             )
 
@@ -227,6 +272,7 @@ class EtoroConnector(BrokerConnector):
                     current_value=value,
                     currency=currency,
                     canonical_symbol=f"COPY-{mirror_id}",
+                    reported_pnl=mirror_pnl.get(int(mirror_id)),
                 )
             )
         return positions
@@ -309,17 +355,32 @@ class EtoroConnector(BrokerConnector):
 
     async def fetch_snapshot(self, snapshot_date: date) -> ConnectorSnapshot:
         await self.validate_credentials()
+        await self._load_pnl()
         assert self._portfolio is not None
+        assert self._pnl is not None
         totals = self._portfolio["accountTotals"]
+        reported_pnl = _decimal_or_none(self._pnl.get("unrealizedPnL"))
+        if reported_pnl is None:
+            reported_pnl = sum(self._position_pnl().values(), Decimal(0)) + sum(
+                self._mirror_pnl().values(), Decimal(0)
+            )
         return ConnectorSnapshot(
             snapshot_date=snapshot_date,
             total_value=Decimal(str(totals.get("accountTotalValue", 0))),
             currency=str(self._portfolio["accountCurrency"]).upper(),
+            reported_pnl=reported_pnl,
         )
 
 
 def _decimal_or_none(value: Any) -> Decimal | None:
     return None if value is None else Decimal(str(value))
+
+
+def _reported_pnl(item: dict[str, Any]) -> Decimal:
+    unrealized = item.get("unrealizedPnL")
+    if isinstance(unrealized, dict):
+        return Decimal(str(unrealized.get("pnL", unrealized.get("pnl", 0))))
+    return Decimal(str(unrealized or 0))
 
 
 def _timestamp(value: str) -> datetime:

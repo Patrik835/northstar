@@ -27,6 +27,7 @@ def _row(
     ticker: str,
     quantity: str,
     value: str,
+    reported_pnl: str | None = None,
 ) -> HoldingPositionRow:
     connection_id = uuid.uuid4()
     position = Position(
@@ -42,6 +43,8 @@ def _row(
         current_value=Decimal(value),
         currency="EUR",
         current_value_eur=Decimal(value),
+        reported_pnl=Decimal(reported_pnl) if reported_pnl is not None else None,
+        reported_pnl_eur=Decimal(reported_pnl) if reported_pnl is not None else None,
     )
     return HoldingPositionRow(
         position=position,
@@ -78,6 +81,7 @@ async def test_holdings_combines_same_instrument_and_preserves_sources() -> None
             ticker="AAPL",
             quantity="3",
             value="600",
+            reported_pnl="75",
         ),
     ]
 
@@ -93,3 +97,10 @@ async def test_holdings_combines_same_instrument_and_preserves_sources() -> None
         "AAPL",
         "AAPL_US_EQ",
     }
+    etoro_source = next(
+        source
+        for source in result.holdings[0].sources
+        if source.broker is Broker.ETORO
+    )
+    assert etoro_source.reported_pnl == Decimal("75")
+    assert etoro_source.reported_pnl_eur == Decimal("75")

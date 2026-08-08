@@ -43,11 +43,13 @@ class PortfolioRepository:
         return [(broker, Decimal(value)) for broker, value in rows]
 
     async def by_asset_type(self, user_id: uuid.UUID) -> list[tuple[AssetType, Decimal]]:
+        canonical_type = func.coalesce(Instrument.asset_type, Position.asset_type)
         rows = await self.db.execute(
-            select(Position.asset_type, func.sum(Position.current_value_eur))
+            select(canonical_type, func.sum(Position.current_value_eur))
             .join(BrokerConnection)
+            .outerjoin(Instrument, Position.canonical_instrument_id == Instrument.id)
             .where(BrokerConnection.user_id == user_id)
-            .group_by(Position.asset_type)
+            .group_by(canonical_type)
         )
         return [(asset_type, Decimal(value)) for asset_type, value in rows]
 

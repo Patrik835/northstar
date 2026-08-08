@@ -2,22 +2,22 @@
 
 Northstar is a self-hosted, multi-user investment operating system for EU investors.
 It starts by consolidating stocks, ETFs, cash, and crypto across Trading 212, eToro,
-Binance, CSV imports, and manual entries. The longer-term product expands to real
-estate and other diversified investments while keeping portfolio data private,
-traceable, and understandable.
+Binance, and the provider-specific Trading 212 Crypto CSV import. The longer-term
+product expands to manually valued real estate and other diversified investments while
+keeping portfolio data private, traceable, and understandable.
 
 The repository currently contains the application foundation and functional read-only
 connectors for Trading 212, Binance Spot, and eToro. Public registration with email
-verification, authentication, encrypted broker credentials, user profiles, scheduled
+verification, authentication, encrypted and replaceable broker credentials, user profiles, scheduled
 manual refresh, persisted ECB currency conversion, observable synchronization runs,
 rate-limit-aware retry/backoff, visible connection freshness, and
 the basic aggregated dashboard are implemented. Canonical instruments now combine equivalent holdings across
 brokers, while a searchable holdings view exposes consolidated stock/ETF and crypto
-positions plus each platform's original detail. The Binance and eToro connectors have
-automated contract coverage but still need smoke testing with real read-only accounts.
+positions plus each platform's original detail. Binance and eToro both have automated
+contract coverage and successful real read-only account smoke tests.
 Trading 212 Crypto is supported through repeatable, deduplicated CSV imports because its
-separate Crypto account has no Public API. Generic CSV/manual imports, advanced analytics,
-news, and AI remain planned or scaffolded.
+separate Crypto account has no Public API. Advanced analytics, real estate, news, and AI
+remain planned or scaffolded.
 
 See [PROJECT_REQUIREMENTS.md](PROJECT_REQUIREMENTS.md) for the product contract and
 [NORTHSTAR_ROADMAP.md](NORTHSTAR_ROADMAP.md) for the ticket-sized implementation
@@ -179,6 +179,9 @@ available at `http://localhost:8000/docs`.
   API middleware before public exposure.
 - Broker credentials are encrypted using AES-256-GCM with a fresh 96-bit nonce and
   authenticated context for every saved credential payload.
+- Reconnect accepts a complete new credential set, validates it with the provider before
+  replacement, and immediately synchronizes the existing connection. Saved secret values
+  are never returned to or prefilled in the browser.
 - Secrets are accepted only by the backend and returned only as masked hints.
 - Binance is modeled as read-only and its connection UI explicitly tells users to
   disable trading, futures, and withdrawals.
@@ -200,10 +203,19 @@ available at `http://localhost:8000/docs`.
 - APScheduler is appropriate for one Raspberry Pi API process. If the API is later
   replicated, move jobs to a dedicated worker or use a distributed scheduler so they
   do not execute once per replica.
-- Trading 212 history currently starts with the first successful sync. Binance currently
-  imports trades and fees for assets held at synchronization time; deposits, withdrawals,
-  income events, sold-out symbols, and resumable full-history backfill remain roadmap
-  work. eToro imports the documented aggregate portfolio and closed-trade history. All
+- Trading 212 backfills orders/fills, dividends, and cash movements through the official
+  continuation paths. Per-stream cursors are committed with each page, so an interrupted
+  backfill resumes without duplicating stored activity. Each run reads the newest page
+  plus at most five older pages per stream to stay inside provider limits. Binance imports
+  discoverable Spot trades, trade and withdrawal fees, completed deposits and withdrawals,
+  and positive asset distributions. A versioned marker gives existing connections one
+  initial activity backfill before overlap-safe incremental syncs. Binance requires a symbol
+  for Spot trade history, so a fully sold-out asset with no current balance, transfer, or
+  income record cannot yet be discovered automatically. eToro imports the documented
+  aggregate portfolio, enriches holdings and snapshots with broker-reported P&L from the
+  Real-account P&L endpoint, and imports closed-trade history. Reported P&L is retained in
+  its provider currency and converted to EUR without presenting it as an app-calculated
+  return. All
   three live connectors refresh every 1–2 hours, and eToro receives an additional
   month-end synchronization.
 - ECB daily reference rates are fetched and cached in each synchronization process for
@@ -217,5 +229,5 @@ available at `http://localhost:8000/docs`.
 - Transient safe provider reads use at most three attempts with exponential backoff.
   Standard `Retry-After`, Trading 212 reset timestamps, and Binance's `418`/`429`
   responses are handled without exposing provider response bodies to users.
-- XTB remains unsupported as a live API source. It will use the planned CSV/manual
-  fallback unless an official supported API becomes available.
+- XTB remains unsupported until an official API or a dedicated low-effort import is
+  deliberately added.

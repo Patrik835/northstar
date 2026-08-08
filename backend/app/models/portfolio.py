@@ -39,6 +39,10 @@ class Position(Base):
     current_value: Mapped[Decimal] = mapped_column(Numeric(20, 4))
     currency: Mapped[str] = mapped_column(String(12))
     current_value_eur: Mapped[Decimal] = mapped_column(Numeric(20, 4))
+    reported_pnl: Mapped[Decimal | None] = mapped_column(Numeric(20, 4), nullable=True)
+    reported_pnl_eur: Mapped[Decimal | None] = mapped_column(
+        Numeric(20, 4), nullable=True
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
@@ -65,6 +69,10 @@ class PortfolioSnapshot(Base):
     total_value: Mapped[Decimal] = mapped_column(Numeric(20, 4))
     currency: Mapped[str] = mapped_column(String(12))
     total_value_eur: Mapped[Decimal] = mapped_column(Numeric(20, 4))
+    reported_pnl: Mapped[Decimal | None] = mapped_column(Numeric(20, 4), nullable=True)
+    reported_pnl_eur: Mapped[Decimal | None] = mapped_column(
+        Numeric(20, 4), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

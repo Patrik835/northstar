@@ -2,7 +2,7 @@ import hashlib
 import hmac
 import time
 from collections import deque
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 from urllib.parse import urlencode
@@ -29,6 +29,11 @@ class BinanceConnector(BrokerConnector):
 
     base_url = "https://api.binance.com"
     quote_priority = ("EUR", "USDT", "USDC", "FDUSD", "BTC")
+    capital_history_days = 89
+    income_history_days = 179
+    history_overlap = timedelta(minutes=5)
+    max_offset_pages = 10
+    max_trade_pages = 5
 
     def __init__(
         self,
@@ -248,85 +253,307 @@ class BinanceConnector(BrokerConnector):
         self._positions = positions
         return positions
 
-    def _preferred_trade_symbol(self, asset: str) -> str | None:
+    def _trade_symbols(self, assets: set[str]) -> set[str]:
         assert self._symbols is not None
-        candidates = [
-            info
-            for info in self._symbols.values()
-            if info.get("baseAsset") == asset and info.get("symbol") in (self._prices or {})
-        ]
-        candidates.sort(
-            key=lambda item: (
-                self.quote_priority.index(str(item["quoteAsset"]))
-                if item.get("quoteAsset") in self.quote_priority
-                else len(self.quote_priority),
-                str(item["symbol"]),
-            )
-        )
-        return str(candidates[0]["symbol"]) if candidates else None
+        return {
+            symbol
+            for symbol, info in self._symbols.items()
+            if str(info.get("baseAsset")) in assets
+            and str(info.get("quoteAsset")) in self.quote_priority
+        }
 
     async def fetch_transactions(self, since: datetime | None) -> list[ConnectorTransaction]:
         await self.fetch_positions()
         assert self._account is not None
         assert self._symbols is not None
+        now = datetime.now(timezone.utc)
+        capital_start = self._history_start(since, now, self.capital_history_days)
+        income_start = self._history_start(since, now, self.income_history_days)
+
+        deposits = await self._fetch_offset_history(
+            "/sapi/v1/capital/deposit/hisrec",
+            capital_start,
+            now,
+            "deposit history",
+        )
+        withdrawals = await self._fetch_offset_history(
+            "/sapi/v1/capital/withdraw/history",
+            capital_start,
+            now,
+            "withdrawal history",
+        )
+        income = await self._fetch_income(income_start, now)
+
         assets = {
             str(item["asset"])
             for item in self._account["balances"]
             if Decimal(str(item.get("free", 0))) + Decimal(str(item.get("locked", 0))) > 0
             and item.get("asset") != "EUR"
         }
-        symbols = {symbol for asset in assets if (symbol := self._preferred_trade_symbol(asset))}
-        transactions: list[ConnectorTransaction] = []
-        for symbol in sorted(symbols):
+        assets.update(str(item.get("coin")) for item in deposits if item.get("coin"))
+        assets.update(str(item.get("coin")) for item in withdrawals if item.get("coin"))
+        assets.update(str(item.get("asset")) for item in income if item.get("asset"))
+
+        transactions = [
+            *self._map_deposits(deposits, since),
+            *self._map_withdrawals(withdrawals, since),
+            *self._map_income(income, since),
+        ]
+        for symbol in sorted(self._trade_symbols(assets)):
+            records = await self._fetch_trades(symbol, since)
+            transactions.extend(self._map_trades(symbol, records, since))
+        return sorted(transactions, key=lambda item: (item.executed_at, item.external_id))
+
+    def _history_start(
+        self, since: datetime | None, now: datetime, maximum_days: int
+    ) -> datetime:
+        earliest = now - timedelta(days=maximum_days)
+        if since is None:
+            return earliest
+        normalized = since if since.tzinfo else since.replace(tzinfo=timezone.utc)
+        return max(earliest, normalized.astimezone(timezone.utc) - self.history_overlap)
+
+    async def _fetch_offset_history(
+        self,
+        path: str,
+        start: datetime,
+        end: datetime,
+        label: str,
+    ) -> list[dict[str, Any]]:
+        records: list[dict[str, Any]] = []
+        for page in range(self.max_offset_pages):
+            payload = await self._get(
+                path,
+                {
+                    "startTime": int(start.timestamp() * 1000),
+                    "endTime": int(end.timestamp() * 1000),
+                    "offset": page * 1000,
+                    "limit": 1000,
+                },
+                signed=True,
+            )
+            if not isinstance(payload, list):
+                raise BrokerUnavailableError(f"Binance returned invalid {label}.")
+            records.extend(item for item in payload if isinstance(item, dict))
+            if len(payload) < 1000:
+                break
+        return records
+
+    async def _fetch_income(
+        self, start: datetime, end: datetime
+    ) -> list[dict[str, Any]]:
+        return await self._fetch_income_window(start, end)
+
+    async def _fetch_income_window(
+        self, start: datetime, end: datetime, depth: int = 0
+    ) -> list[dict[str, Any]]:
+        payload = await self._get(
+            "/sapi/v1/asset/assetDividend",
+            {
+                "startTime": int(start.timestamp() * 1000),
+                "endTime": int(end.timestamp() * 1000),
+                "limit": 500,
+            },
+            signed=True,
+        )
+        if not isinstance(payload, dict) or not isinstance(payload.get("rows"), list):
+            raise BrokerUnavailableError("Binance returned invalid income history.")
+        rows = [item for item in payload["rows"] if isinstance(item, dict)]
+        try:
+            total = int(payload.get("total", len(rows)))
+        except (TypeError, ValueError):
+            total = len(rows)
+        if total <= len(rows):
+            return rows
+        if depth >= 8 or end - start <= timedelta(hours=1):
+            raise BrokerUnavailableError(
+                "Binance income history is too large to import safely in one run."
+            )
+        midpoint = start + (end - start) / 2
+        return [
+            *await self._fetch_income_window(start, midpoint, depth + 1),
+            *await self._fetch_income_window(
+                midpoint + timedelta(milliseconds=1), end, depth + 1
+            ),
+        ]
+
+    async def _fetch_trades(
+        self, symbol: str, since: datetime | None
+    ) -> list[dict[str, Any]]:
+        records: list[dict[str, Any]] = []
+        for _ in range(self.max_trade_pages):
             params: dict[str, str | int] = {"symbol": symbol, "limit": 1000}
-            if since:
-                params["startTime"] = int(since.timestamp() * 1000)
+            if records:
+                params["fromId"] = max(int(item["id"]) for item in records) + 1
+            elif since:
+                normalized = since if since.tzinfo else since.replace(tzinfo=timezone.utc)
+                params["startTime"] = int(
+                    (normalized.astimezone(timezone.utc) - self.history_overlap).timestamp()
+                    * 1000
+                )
             payload = await self._get("/api/v3/myTrades", params, signed=True)
             if not isinstance(payload, list):
                 raise BrokerUnavailableError("Binance returned invalid trade history.")
-            info = self._symbols[symbol]
-            base_asset = str(info["baseAsset"])
-            quote_asset = str(info["quoteAsset"])
-            for item in payload:
-                executed_at = datetime.fromtimestamp(
-                    int(item["time"]) / 1000, tz=timezone.utc
+            records.extend(item for item in payload if isinstance(item, dict))
+            if since is None or len(payload) < 1000:
+                break
+        return records
+
+    def _map_trades(
+        self,
+        symbol: str,
+        records: list[dict[str, Any]],
+        since: datetime | None,
+    ) -> list[ConnectorTransaction]:
+        assert self._symbols is not None
+        info = self._symbols[symbol]
+        base_asset = str(info["baseAsset"])
+        quote_asset = str(info["quoteAsset"])
+        transactions: list[ConnectorTransaction] = []
+        for item in records:
+            executed_at = _timestamp_ms(item.get("time"))
+            if executed_at is None or (since and executed_at <= since):
+                continue
+            trade_id = str(item.get("id"))
+            quantity = Decimal(str(item.get("qty", 0)))
+            price = Decimal(str(item.get("price", 0)))
+            value = Decimal(str(item.get("quoteQty", quantity * price)))
+            transactions.append(
+                ConnectorTransaction(
+                    external_id=f"trade:{symbol}:{trade_id}",
+                    ticker=base_asset,
+                    transaction_type=(
+                        TransactionType.BUY if item.get("isBuyer") else TransactionType.SELL
+                    ),
+                    quantity=abs(quantity),
+                    price=price,
+                    value=abs(value),
+                    currency=quote_asset,
+                    executed_at=executed_at,
                 )
-                if since and executed_at <= since:
-                    continue
-                trade_id = str(item.get("id"))
-                quantity = Decimal(str(item.get("qty", 0)))
-                price = Decimal(str(item.get("price", 0)))
-                value = Decimal(str(item.get("quoteQty", quantity * price)))
+            )
+            commission = Decimal(str(item.get("commission", 0)))
+            if commission:
+                commission_asset = str(item.get("commissionAsset") or quote_asset)
                 transactions.append(
                     ConnectorTransaction(
-                        external_id=f"trade:{symbol}:{trade_id}",
-                        ticker=base_asset,
-                        transaction_type=(
-                            TransactionType.BUY if item.get("isBuyer") else TransactionType.SELL
-                        ),
-                        quantity=abs(quantity),
-                        price=price,
-                        value=abs(value),
-                        currency=quote_asset,
+                        external_id=f"trade-fee:{symbol}:{trade_id}",
+                        ticker=commission_asset,
+                        transaction_type=TransactionType.FEE,
+                        quantity=None,
+                        price=None,
+                        value=abs(commission),
+                        currency=commission_asset,
                         executed_at=executed_at,
                     )
                 )
-                commission = Decimal(str(item.get("commission", 0)))
-                if commission:
-                    commission_asset = str(item.get("commissionAsset") or quote_asset)
-                    transactions.append(
-                        ConnectorTransaction(
-                            external_id=f"trade-fee:{symbol}:{trade_id}",
-                            ticker=commission_asset,
-                            transaction_type=TransactionType.FEE,
-                            quantity=None,
-                            price=None,
-                            value=abs(commission),
-                            currency=commission_asset,
-                            executed_at=executed_at,
-                        )
+        return transactions
+
+    @staticmethod
+    def _map_deposits(
+        records: list[dict[str, Any]], since: datetime | None
+    ) -> list[ConnectorTransaction]:
+        transactions: list[ConnectorTransaction] = []
+        for item in records:
+            if int(item.get("status", -1)) not in {1, 6}:
+                continue
+            executed_at = _timestamp_ms(item.get("completeTime") or item.get("insertTime"))
+            if executed_at is None or (since and executed_at <= since):
+                continue
+            asset = str(item.get("coin") or "UNKNOWN")
+            amount = abs(Decimal(str(item.get("amount", 0))))
+            identifier = item.get("id") or item.get("txId") or (
+                f"{asset}:{item.get('insertTime')}:{amount}"
+            )
+            transactions.append(
+                ConnectorTransaction(
+                    external_id=f"deposit:{identifier}",
+                    ticker=asset,
+                    transaction_type=TransactionType.DEPOSIT,
+                    quantity=amount,
+                    price=None,
+                    value=amount,
+                    currency=asset,
+                    executed_at=executed_at,
+                )
+            )
+        return transactions
+
+    @staticmethod
+    def _map_withdrawals(
+        records: list[dict[str, Any]], since: datetime | None
+    ) -> list[ConnectorTransaction]:
+        transactions: list[ConnectorTransaction] = []
+        for item in records:
+            if int(item.get("status", -1)) != 6:
+                continue
+            executed_at = _binance_datetime(
+                item.get("completeTime") or item.get("applyTime")
+            )
+            if executed_at is None or (since and executed_at <= since):
+                continue
+            asset = str(item.get("coin") or "UNKNOWN")
+            amount = abs(Decimal(str(item.get("amount", 0))))
+            identifier = item.get("id") or item.get("txId") or (
+                f"{asset}:{item.get('applyTime')}:{amount}"
+            )
+            transactions.append(
+                ConnectorTransaction(
+                    external_id=f"withdrawal:{identifier}",
+                    ticker=asset,
+                    transaction_type=TransactionType.WITHDRAWAL,
+                    quantity=amount,
+                    price=None,
+                    value=amount,
+                    currency=asset,
+                    executed_at=executed_at,
+                )
+            )
+            fee = abs(Decimal(str(item.get("transactionFee", 0))))
+            if fee:
+                transactions.append(
+                    ConnectorTransaction(
+                        external_id=f"withdrawal-fee:{identifier}",
+                        ticker=asset,
+                        transaction_type=TransactionType.FEE,
+                        quantity=None,
+                        price=None,
+                        value=fee,
+                        currency=asset,
+                        executed_at=executed_at,
                     )
-        return sorted(transactions, key=lambda item: item.executed_at)
+                )
+        return transactions
+
+    @staticmethod
+    def _map_income(
+        records: list[dict[str, Any]], since: datetime | None
+    ) -> list[ConnectorTransaction]:
+        transactions: list[ConnectorTransaction] = []
+        for item in records:
+            if int(item.get("direction", 1)) != 1:
+                continue
+            executed_at = _timestamp_ms(item.get("divTime"))
+            if executed_at is None or (since and executed_at <= since):
+                continue
+            asset = str(item.get("asset") or "UNKNOWN")
+            amount = abs(Decimal(str(item.get("amount", 0))))
+            identifier = item.get("id") or item.get("tranId") or (
+                f"{asset}:{item.get('divTime')}:{amount}"
+            )
+            transactions.append(
+                ConnectorTransaction(
+                    external_id=f"income:{asset}:{identifier}",
+                    ticker=asset,
+                    transaction_type=TransactionType.DIVIDEND,
+                    quantity=amount,
+                    price=None,
+                    value=amount,
+                    currency=asset,
+                    executed_at=executed_at,
+                )
+            )
+        return transactions
 
     async def fetch_snapshot(self, snapshot_date: date) -> ConnectorSnapshot:
         positions = await self.fetch_positions()
@@ -335,3 +562,27 @@ class BinanceConnector(BrokerConnector):
             total_value=sum((item.current_value for item in positions), Decimal(0)),
             currency="EUR",
         )
+
+
+def _timestamp_ms(value: Any) -> datetime | None:
+    if value is None:
+        return None
+    try:
+        return datetime.fromtimestamp(int(value) / 1000, tz=timezone.utc)
+    except (TypeError, ValueError, OverflowError, OSError):
+        return None
+
+
+def _binance_datetime(value: Any) -> datetime | None:
+    timestamp = _timestamp_ms(value)
+    if timestamp is not None:
+        return timestamp
+    if value is None:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)

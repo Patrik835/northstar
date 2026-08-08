@@ -1,6 +1,6 @@
 # Northstar Investment OS — Requirements Refresh and Kanban Roadmap
 
-> Updated 2026-08-06: requirements/documentation and the first Binance/eToro connector
+> Updated 2026-08-08: requirements/documentation and the first Binance/eToro connector
 > slices are complete. Items explicitly marked partial still need follow-up tickets.
 
 ## Summary
@@ -28,8 +28,12 @@ This direction matches the strongest capabilities offered by mature trackers: ge
 - Public registration, email verification/resend, login/logout, opaque cookie sessions, password changes, account lockout, and admin-created users.
 - Argon2 password hashing and AES-256-GCM broker credential encryption.
 - Trading 212 credential validation, positions, cash, recent activity, daily snapshot, scheduled/manual synchronization, and limited-permission handling.
-- Binance signed authentication, Spot balances, EUR market-pair valuation, held-asset trades/fees, snapshots, and scheduled/manual synchronization.
-- eToro public API authentication, aggregate positions/cash/copy value, instrument metadata, closed-trade history, current/month-end snapshots, and scheduled/manual synchronization.
+- Binance signed authentication, Spot balances, EUR market-pair valuation, discoverable
+  Spot trades, completed transfers, trade/withdrawal fees, positive asset distributions,
+  one-time upgrade backfill, snapshots, and scheduled/manual synchronization.
+- eToro public API authentication, aggregate positions/cash/copy value, instrument metadata,
+  broker-reported position/copy/account P&L in provider currency and EUR, closed-trade
+  history, current/month-end snapshots, and scheduled/manual synchronization.
 - Working-day ECB FX fetching, dated database storage, same-day caching, cross-currency
   conversion, and last-known-good fallback for synchronization.
 - Persisted live-connection sync runs with initial/manual/scheduled triggers,
@@ -38,25 +42,38 @@ This direction matches the strongest capabilities offered by mature trackers: ge
   `Retry-After` and Trading 212 reset-header handling.
 - Connection cards show fresh, stale, or never-synchronized state, the last successful
   synchronization, and the most recent failed attempt without erasing known-good data.
+- Existing live connections can validate and replace encrypted credentials without
+  returning or prefilling saved secrets, then immediately synchronize with the new key.
+- Trading 212 orders, dividends, and cash history paginate through provider continuation
+  paths with per-stream cursors, bounded backfill batches, and interruption-safe resume.
+- Trading 212 synchronization is covered for repeat-run transaction, position, and daily
+  snapshot idempotency, including resumed and post-backfill incremental history.
 - Canonical instruments and provider aliases that combine equivalent securities and crypto while preserving every broker's original identifiers.
 - Searchable holdings UI with consolidated stock/ETF and crypto views, per-platform filtering, and expandable source-currency details.
 - Trading 212 Crypto CSV imports with validation, overlap-safe deduplication, transaction-backed balance reconstruction, current Binance pricing, and explicit valuation fallback warnings.
 - Compact connected-source management plus a searchable/filterable source directory designed to accommodate additional brokers and import types.
-- Connection setup guides, encrypted credential storage, masked hints, and deletion.
+- Connection setup guides, encrypted credential storage, masked hints, secure reconnect,
+  and deletion.
 - Goals, risk tolerance, and time-horizon profile.
 - Basic dashboard total, position count, and allocation-by-source API/UI.
 - Core database tables for positions, transactions, snapshots, news, recommendations, and chat history.
-- Thirty-five backend tests currently pass, including crypto CSV parsing/reconstruction,
+- Fifty backend tests currently pass, including crypto CSV parsing/reconstruction,
   canonical matching, holdings aggregation, sync-run state handling, and mocked Binance,
   eToro, ECB, and public crypto-price contracts; frontend lint and the production build
   also pass.
 
 ### Partially Implemented
 
-- Trading 212 lacks complete pagination/backfill, detailed data-quality reporting, and comprehensive connector/service tests.
-- Binance activity is limited to trades and fees for currently held assets; deposits, withdrawals, income, sold-out-symbol discovery, and resumable full-history backfill remain.
-- Binance and eToro have mocked API coverage but have not been smoke-tested with real read-only credentials.
-- eToro's aggregate portfolio and closed trades are supported, but broader product/history reconciliation against real accounts remains.
+- Trading 212 still needs real-account backfill verification, detailed data-quality reporting, and broader reconciliation tests.
+- Binance activity now covers current/transfer/income-discovered Spot pairs, completed
+  deposits and withdrawals, trade and withdrawal fees, and positive asset distributions.
+  Binance's symbol-required trade endpoint still prevents automatic discovery of a fully
+  sold-out asset with no current balance, transfer, income, or previously known record;
+  deeper full-history reconciliation remains.
+- Binance and eToro have mocked contract coverage and successful real read-only account
+  smoke tests.
+- eToro's aggregate portfolio, dedicated Real-account P&L, and closed trades are supported;
+  broader product/history reconciliation remains.
 - Asset-type allocation is returned by the API but not displayed.
 - Daily snapshots exist, but there is no historical portfolio API, performance engine, or chart.
 - AI, news, and benchmark adapters exist only as interfaces/placeholders.
@@ -72,8 +89,7 @@ This direction matches the strongest capabilities offered by mature trackers: ge
 - Recent activity feed.
 - News and earnings calendar.
 - AI recommendations and portfolio-aware chat.
-- Connection credential replacement/reconnection.
-- Background-job health, retries, observability, and notifications.
+- Background-job health, stuck-run recovery, deeper observability, and notifications.
 - Login rate limiting beyond account lockout.
 - Responsive/mobile-quality web UX and broader automated testing.
 
@@ -109,21 +125,21 @@ All implementation tickets should target approximately 1–3 working days and in
 7. [x] Add sync-run records with running/success/partial/error states and safe error details.
 8. [x] Add retry/backoff and provider rate-limit handling to scheduled synchronization.
 9. [x] Add stale-data indicators and last-successful-sync status to connection cards.
-10. Add credential replacement and reconnect flow without exposing saved secrets.
-11. Add Trading 212 paginated transaction backfill with resumable cursors.
-12. Add Trading 212 synchronization idempotency tests. (Rate-limit headers are handled.)
-13. Replace Trading 212 name-based ETF classification with canonical metadata mapping.
+10. [x] Add credential replacement and reconnect flow without exposing saved secrets.
+11. [x] Add Trading 212 paginated transaction backfill with resumable cursors.
+12. [x] Add Trading 212 synchronization idempotency tests. (Rate-limit headers are handled.)
+13. [x] Replace Trading 212 name-based ETF guessing with verified asset types stored on existing canonical instruments.
 14. [x] Implement Binance signed-request authentication and credential validation.
 15. [x] Import Binance Spot balances and convert non-zero assets into positions.
 16. [x] Resolve Binance asset prices through EUR, stablecoin, and intermediate quote pairs.
-17. Import Binance trades, deposits, withdrawals, fees, and supported income events. (Partial: held-asset trades and fees are implemented.)
+17. [x] Import Binance trades, deposits, withdrawals, trade/withdrawal fees, and supported asset-distribution income events.
 18. [x] Implement eToro authentication using the documented public API base URL and request headers.
-19. Import current eToro positions, cash, value, and P&L where exposed. (Partial: positions, cash, copy-portfolio value, quantity, and average price are implemented; explicit P&L persistence remains.)
+19. [x] Import current eToro positions, cash, value, and broker-reported P&L where exposed, retaining provider-currency and EUR values.
 20. [x] Store eToro daily/current valuations and reliable month-end snapshots.
-21. Add reusable CSV import jobs with upload, mapping preview, validation, and atomic commit. (Partial: Trading 212 Crypto has upload, validation, and atomic persistence; reusable mapping previews and persisted import-job records remain.)
-22. Provide Trading 212, Binance, and generic transaction CSV templates.
-23. Add manual holding and transaction CRUD for unsupported brokers.
-24. Add duplicate detection and reconciliation reporting across API and CSV imports. (Partial: Trading 212 Crypto repeated/overlapping files are deduplicated; general reconciliation reports remain.)
+21. [x] Support the native Trading 212 Crypto CSV with validation, atomic persistence, and repeat-import deduplication. Generic CSV mapping is intentionally out of scope.
+22. [removed] Do not provide generic transaction templates; supported imports should accept the provider's native export without user reformatting.
+23. [moved] Reserve manual entry for the Phase 4 diversified-asset model in item 63, beginning with real estate rather than manually maintained stocks or crypto.
+24. Add automatic reconciliation checks to synchronization and supported CSV imports without a separate user-operated data-quality workflow. (Partial: Trading 212 Crypto repeated/overlapping files are deduplicated.)
 
 ### Milestone 2 — Portfolio Analytics and Usable Dashboard
 

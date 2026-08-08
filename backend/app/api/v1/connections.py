@@ -8,11 +8,12 @@ from app.api.dependencies import CurrentUser, DbSession
 from app.core.config import get_settings
 from app.core.encryption import CredentialCipher
 from app.models.broker import BrokerConnection
-from app.models.enums import Broker, SyncTrigger
+from app.models.enums import Broker, ConnectionStatus, SyncTrigger
 from app.repositories.connections import ConnectionRepository
 from app.schemas.auth import MessageResponse
 from app.schemas.connection import (
     ConnectionCreate,
+    ConnectionCredentialsUpdate,
     ConnectionGuide,
     ConnectionRead,
     CryptoCsvImportResult,
@@ -40,16 +41,15 @@ def _connection_read(connection: BrokerConnection) -> ConnectionRead:
 
 SECURITY_NOTICES = {
     Broker.TRADING212: (
-        "Use a dedicated read-only API key. Never enable permissions that create, "
-        "change, or cancel orders. Credentials are encrypted and never displayed again."
+        "Use a read-only key with Account, Portfolio, and History access. "
+        "Never enable trading permissions."
     ),
     Broker.ETORO: (
-        "Provide the Public Key and Private Key shown by eToro. Northstar sends them "
-        "as the documented x-api-key and x-user-key headers and never requests trading access."
+        "Use a Real-environment key with Read permission only. "
+        "Enter eToro's Public Key and Private Key."
     ),
     Broker.BINANCE: (
-        "Create a read-only key: enable Reading only. Disable Spot & Margin Trading, "
-        "Withdrawals, and Futures."
+        "Enable Reading only. Keep trading, Futures, and Withdrawals disabled."
     ),
 }
 
@@ -85,7 +85,9 @@ TUTORIAL_URLS = {
 SOURCE_DESCRIPTIONS = {
     Broker.TRADING212: "Automatically synchronize stocks, ETFs, cash, and recent activity.",
     Broker.ETORO: "Automatically synchronize investments, cash, and Copy Portfolios.",
-    Broker.BINANCE: "Automatically synchronize Spot crypto balances and trade activity.",
+    Broker.BINANCE: (
+        "Automatically synchronize Spot balances, trades, transfers, fees, and distributions."
+    ),
 }
 
 SOURCE_CATEGORIES = {
@@ -96,33 +98,20 @@ SOURCE_CATEGORIES = {
 
 SETUP_STEPS = {
     Broker.TRADING212: [
-        "Sign in to Trading 212 and open Settings, then API (Beta).",
-        "Accept the API risk notice and choose Generate API key.",
-        "Give the key a recognizable name, such as Northstar.",
-        "Enable Account data and Portfolio access.",
-        "Under History, enable Orders, Dividends, and Transactions. All three are "
-        "needed for the activity feed.",
-        "Leave every permission that creates, changes, or cancels orders disabled. "
-        "Northstar only reads your investment data.",
-        "If you restrict the key by IP address, add the public IP of the server where "
-        "Northstar runs. For local Docker use, that is your internet connection's public IP.",
-        "Create the key, then copy both the API Key and API Secret. The secret is shown only once.",
+        "Open Trading 212 Settings → API (Beta) → Generate API key.",
+        "Enable Account data, Portfolio, and all three History permissions.",
+        "Keep every order and trading permission disabled.",
+        "Copy the API Key and API Secret; the secret is shown once.",
     ],
     Broker.ETORO: [
-        "Sign in to eToro and open Settings, then Trading.",
-        "Find API Key Management and choose Create New Key.",
-        "Select the Real environment and Read permission only.",
-        "Complete the identity check sent to your phone.",
-        "Copy eToro's Public Key and Private Key into the matching fields below. "
-        "The Private Key is used as the documented x-user-key value.",
+        "Open eToro Settings → Trading → API Key Management.",
+        "Create a Real-environment key with Read permission only.",
+        "Complete verification, then copy the Public Key and Private Key.",
     ],
     Broker.BINANCE: [
-        "Sign in to Binance and open Profile, then API Management.",
-        "Create a system-generated HMAC API key and name it Northstar.",
-        "Complete Binance's security verification.",
-        "Under API restrictions, enable Reading only.",
-        "Keep Spot & Margin Trading, Futures, and Withdrawals disabled.",
-        "Copy the API Key and Secret Key. Binance may show the secret only once.",
+        "Open Binance Profile → API Management and create an HMAC key.",
+        "Enable Reading only; leave trading and withdrawals disabled.",
+        "Copy the API Key and Secret Key; the secret may be shown once.",
     ],
 }
 
@@ -220,6 +209,24 @@ async def import_trading212_crypto(
     )
 
 
+@router.post("/sync-all", response_model=list[ConnectionRead])
+async def sync_all_connections(user: CurrentUser, db: DbSession) -> list[ConnectionRead]:
+    connections = await ConnectionRepository(db).for_user(user.id)
+    live_connections = [
+        connection
+        for connection in connections
+        if connection.broker in CREDENTIAL_FIELDS
+        and connection.status != ConnectionStatus.DISABLED
+    ]
+    sync_service = ConnectionSyncService(db, CredentialCipher())
+    synced_connections = []
+    for connection in live_connections:
+        synced_connections.append(
+            await sync_service.sync(connection, trigger=SyncTrigger.MANUAL)
+        )
+    return [_connection_read(connection) for connection in synced_connections]
+
+
 @router.delete("/{connection_id}", response_model=MessageResponse)
 async def delete_connection(
     connection_id: uuid.UUID, user: CurrentUser, db: DbSession
@@ -227,6 +234,24 @@ async def delete_connection(
     if not await ConnectionService(db, CredentialCipher()).delete(connection_id, user.id):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Connection not found")
     return MessageResponse(message="Connection and its imported data deleted")
+
+
+@router.put("/{connection_id}/credentials", response_model=ConnectionRead)
+async def replace_connection_credentials(
+    connection_id: uuid.UUID,
+    payload: ConnectionCredentialsUpdate,
+    user: CurrentUser,
+    db: DbSession,
+) -> ConnectionRead:
+    try:
+        connection = await ConnectionService(
+            db, CredentialCipher()
+        ).replace_credentials(connection_id, user.id, payload.credentials)
+    except InvalidConnectionCredentials as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+    if not connection:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Connection not found")
+    return _connection_read(connection)
 
 
 @router.post("/{connection_id}/sync", response_model=ConnectionRead)
