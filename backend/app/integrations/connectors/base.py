@@ -32,6 +32,8 @@ class ConnectorPosition:
     average_price: Decimal | None
     current_value: Decimal
     currency: str
+    canonical_symbol: str | None = None
+    isin: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

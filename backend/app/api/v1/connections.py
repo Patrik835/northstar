@@ -1,6 +1,7 @@
 import uuid
+from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, File, HTTPException, UploadFile, status
 from sqlalchemy.exc import IntegrityError
 
 from app.api.dependencies import CurrentUser, DbSession
@@ -8,12 +9,22 @@ from app.core.encryption import CredentialCipher
 from app.models.enums import Broker
 from app.repositories.connections import ConnectionRepository
 from app.schemas.auth import MessageResponse
-from app.schemas.connection import ConnectionCreate, ConnectionGuide, ConnectionRead
+from app.schemas.connection import (
+    ConnectionCreate,
+    ConnectionGuide,
+    ConnectionRead,
+    CryptoCsvImportResult,
+)
 from app.services.connection_sync import ConnectionSyncService
 from app.services.connections import (
     CREDENTIAL_FIELDS,
     ConnectionService,
     InvalidConnectionCredentials,
+)
+from app.services.trading212_crypto_import import (
+    MAX_CSV_BYTES,
+    CryptoCsvImportError,
+    Trading212CryptoImportService,
 )
 
 router = APIRouter()
@@ -23,11 +34,33 @@ SECURITY_NOTICES = {
         "Use a dedicated read-only API key. Never enable permissions that create, "
         "change, or cancel orders. Credentials are encrypted and never displayed again."
     ),
-    Broker.ETORO: "Provide the API key and user key from your verified eToro account.",
+    Broker.ETORO: (
+        "Provide the Public Key and Private Key shown by eToro. Northstar sends them "
+        "as the documented x-api-key and x-user-key headers and never requests trading access."
+    ),
     Broker.BINANCE: (
         "Create a read-only key: enable Reading only. Disable Spot & Margin Trading, "
         "Withdrawals, and Futures."
     ),
+}
+
+CREDENTIAL_LABELS = {
+    Broker.TRADING212: {
+        "api_key": "API key",
+        "api_secret": "API secret",
+    },
+    Broker.ETORO: {
+        "user_key": "Private key",
+        "api_key": "Public key",
+    },
+    Broker.BINANCE: {
+        "api_key": "API key",
+        "secret_key": "Secret key",
+    },
+}
+
+CREDENTIAL_FIELD_ORDER = {
+    Broker.ETORO: ["user_key", "api_key"],
 }
 
 TUTORIAL_URLS = {
@@ -38,6 +71,18 @@ TUTORIAL_URLS = {
     Broker.BINANCE: (
         "https://www.binance.com/en/academy/articles/what-are-api-keys-and-security-types"
     ),
+}
+
+SOURCE_DESCRIPTIONS = {
+    Broker.TRADING212: "Automatically synchronize stocks, ETFs, cash, and recent activity.",
+    Broker.ETORO: "Automatically synchronize investments, cash, and Copy Portfolios.",
+    Broker.BINANCE: "Automatically synchronize Spot crypto balances and trade activity.",
+}
+
+SOURCE_CATEGORIES = {
+    Broker.TRADING212: "Broker",
+    Broker.ETORO: "Broker",
+    Broker.BINANCE: "Crypto exchange",
 }
 
 SETUP_STEPS = {
@@ -59,7 +104,8 @@ SETUP_STEPS = {
         "Find API Key Management and choose Create New Key.",
         "Select the Real environment and Read permission only.",
         "Complete the identity check sent to your phone.",
-        "Copy the Public API Key and User Key into the matching fields below.",
+        "Copy eToro's Public Key and Private Key into the matching fields below. "
+        "The Private Key is used as the documented x-user-key value.",
     ],
     Broker.BINANCE: [
         "Sign in to Binance and open Profile, then API Management.",
@@ -77,12 +123,43 @@ async def guides(user: CurrentUser) -> list[ConnectionGuide]:
     return [
         ConnectionGuide(
             broker=broker,
-            credential_fields=list(fields),
+            connection_type="api",
+            category=SOURCE_CATEGORIES[broker],
+            description=SOURCE_DESCRIPTIONS[broker],
+            credential_fields=CREDENTIAL_FIELD_ORDER.get(broker, list(fields)),
+            credential_labels=CREDENTIAL_LABELS[broker],
             security_notice=SECURITY_NOTICES[broker],
             setup_steps=SETUP_STEPS[broker],
             tutorial_url=TUTORIAL_URLS[broker],
         )
         for broker, fields in CREDENTIAL_FIELDS.items()
+    ] + [
+        ConnectionGuide(
+            broker=Broker.TRADING212_CRYPTO,
+            connection_type="csv",
+            category="Crypto broker",
+            description=(
+                "Import Trading 212 Crypto history safely from its official CSV export. "
+                "Re-import later files without duplicating transactions."
+            ),
+            credential_fields=[],
+            credential_labels={},
+            security_notice=(
+                "Trading 212 does not expose Crypto accounts through its Public API. "
+                "Northstar reads only the CSV you choose and never asks for login credentials."
+            ),
+            setup_steps=[
+                "Open the Crypto account in Trading 212.",
+                "Go to Menu, then History, and select Export.",
+                "Include completed Buy, Sell, Deposit, and Withdrawal activity.",
+                "Choose the full available date range for the first import.",
+                "Download the CSV and upload it below. Later overlapping exports are safe.",
+            ],
+            tutorial_url=(
+                "https://helpcentre.trading212.com/hc/en-us/articles/"
+                "30721201341213-What-are-the-Crypto-account-views"
+            ),
+        )
     ]
 
 
@@ -108,6 +185,32 @@ async def create_connection(
     return ConnectionRead.model_validate(connection)
 
 
+@router.post("/imports/trading212-crypto", response_model=CryptoCsvImportResult)
+async def import_trading212_crypto(
+    user: CurrentUser,
+    db: DbSession,
+    file: Annotated[UploadFile, File()],
+) -> CryptoCsvImportResult:
+    if not file.filename or not file.filename.lower().endswith(".csv"):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Select a CSV file")
+    content = await file.read(MAX_CSV_BYTES + 1)
+    try:
+        result = await Trading212CryptoImportService(
+            db, CredentialCipher()
+        ).import_csv(user.id, content)
+    except CryptoCsvImportError as exc:
+        await db.rollback()
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+    return CryptoCsvImportResult(
+        connection=ConnectionRead.model_validate(result.connection),
+        rows_read=result.rows_read,
+        transactions_added=result.transactions_added,
+        duplicates_skipped=result.duplicates_skipped,
+        positions_imported=result.positions_imported,
+        warnings=result.warnings,
+    )
+
+
 @router.delete("/{connection_id}", response_model=MessageResponse)
 async def delete_connection(
     connection_id: uuid.UUID, user: CurrentUser, db: DbSession
@@ -124,10 +227,5 @@ async def sync_connection(
     connection = await ConnectionRepository(db).owned(connection_id, user.id)
     if not connection:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Connection not found")
-    if connection.broker is not Broker.TRADING212:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT,
-            "Synchronization for this source is not available yet",
-        )
     synced = await ConnectionSyncService(db, CredentialCipher()).sync(connection)
     return ConnectionRead.model_validate(synced)

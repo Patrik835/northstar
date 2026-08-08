@@ -26,10 +26,29 @@ class ConnectionRepository:
             )
         )
 
+    async def by_broker(
+        self, user_id: uuid.UUID, broker: Broker
+    ) -> BrokerConnection | None:
+        return await self.db.scalar(
+            select(BrokerConnection).where(
+                BrokerConnection.user_id == user_id,
+                BrokerConnection.broker == broker,
+            )
+        )
+
     async def syncable_live(self) -> list[BrokerConnection]:
         result = await self.db.scalars(
             select(BrokerConnection).where(
-                BrokerConnection.broker == Broker.TRADING212,
+                BrokerConnection.broker.in_((Broker.TRADING212, Broker.BINANCE, Broker.ETORO)),
+                BrokerConnection.status != ConnectionStatus.DISABLED,
+            )
+        )
+        return list(result)
+
+    async def syncable_etoro(self) -> list[BrokerConnection]:
+        result = await self.db.scalars(
+            select(BrokerConnection).where(
+                BrokerConnection.broker == Broker.ETORO,
                 BrokerConnection.status != ConnectionStatus.DISABLED,
             )
         )

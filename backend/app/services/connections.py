@@ -40,11 +40,10 @@ class ConnectionService:
                 f"Expected exactly these credential fields: {', '.join(required or ())}"
             )
         connector = ConnectorRegistry().create(broker, credentials)
-        if broker is Broker.TRADING212:
-            try:
-                await connector.validate_credentials()
-            except ConnectorError as exc:
-                raise InvalidConnectionCredentials(str(exc)) from exc
+        try:
+            await connector.validate_credentials()
+        except ConnectorError as exc:
+            raise InvalidConnectionCredentials(str(exc)) from exc
 
         key_hint = mask_secret(credentials[required[0]])
         connection = BrokerConnection(
@@ -57,9 +56,7 @@ class ConnectionService:
         self.db.add(connection)
         await self.db.commit()
         await self.db.refresh(connection)
-        if broker is Broker.TRADING212:
-            return await ConnectionSyncService(self.db, self.cipher).sync(connection, connector)
-        return connection
+        return await ConnectionSyncService(self.db, self.cipher).sync(connection, connector)
 
     async def delete(self, connection_id: uuid.UUID, user_id: uuid.UUID) -> bool:
         connection = await self.repo.owned(connection_id, user_id)

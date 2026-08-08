@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 
 async def sync_live_connections() -> None:
-    """Dispatch due Trading212/Binance connections through their registered connectors."""
+    """Dispatch all live broker/exchange connections through their connectors."""
     async with SessionFactory() as db:
         connections = await ConnectionRepository(db).syncable_live()
         service = ConnectionSyncService(db, CredentialCipher())
@@ -19,8 +19,13 @@ async def sync_live_connections() -> None:
 
 
 async def sync_monthly_etoro_snapshots() -> None:
-    """Persist eToro month-end values; calendar handling belongs in this job."""
-    logger.info("Scheduled eToro snapshot tick")
+    """Ensure an eToro valuation is captured near each month end."""
+    async with SessionFactory() as db:
+        connections = await ConnectionRepository(db).syncable_etoro()
+        service = ConnectionSyncService(db, CredentialCipher())
+        for connection in connections:
+            await service.sync(connection)
+    logger.info("Scheduled eToro month-end sync completed for %d connections", len(connections))
 
 
 async def sync_portfolio_news() -> None:

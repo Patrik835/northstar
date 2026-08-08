@@ -10,6 +10,7 @@ class StrEnum(str, Enum):
 
 class Broker(StrEnum):
     TRADING212 = "trading212"
+    TRADING212_CRYPTO = "trading212_crypto"
     ETORO = "etoro"
     BINANCE = "binance"
     XTB_MANUAL = "xtb_manual"

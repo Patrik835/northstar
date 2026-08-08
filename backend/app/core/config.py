@@ -11,7 +11,7 @@ class Settings(BaseSettings):
         env_file=("../.env", ".env"), env_file_encoding="utf-8", extra="ignore"
     )
 
-    app_name: str = "Investment Dashboard API"
+    app_name: str = "Northstar Investment OS API"
     app_env: Literal["development", "test", "production"] = "development"
     api_v1_prefix: str = "/api/v1"
     app_secret_key: str = Field(min_length=32)
@@ -42,7 +42,7 @@ class Settings(BaseSettings):
     benchmarks_enabled: bool = False
 
     scheduler_enabled: bool = True
-    portfolio_sync_minutes: int = 30
+    portfolio_sync_minutes: int = 120
     news_sync_hour_utc: int = 4
 
     initial_admin_username: str = "patrik"

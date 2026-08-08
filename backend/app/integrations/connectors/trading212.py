@@ -104,10 +104,12 @@ class Trading212Connector(BrokerConnector):
             instrument = item.get("instrument") or {}
             wallet = item.get("walletImpact") or {}
             name = instrument.get("name")
+            ticker = str(instrument.get("ticker") or "UNKNOWN")
+            isin = str(instrument["isin"]).upper() if instrument.get("isin") else None
             positions.append(
                 ConnectorPosition(
-                    instrument_id=str(instrument.get("isin") or instrument.get("ticker")),
-                    ticker=str(instrument.get("ticker") or "UNKNOWN"),
+                    instrument_id=str(isin or ticker),
+                    ticker=ticker,
                     name=name,
                     asset_type=(
                         AssetType.ETF
@@ -118,6 +120,8 @@ class Trading212Connector(BrokerConnector):
                     average_price=_decimal_or_none(item.get("averagePricePaid")),
                     current_value=Decimal(str(wallet.get("currentValue", 0))),
                     currency=str(wallet.get("currency") or instrument.get("currency") or "EUR"),
+                    canonical_symbol=_canonical_symbol(ticker),
+                    isin=isin,
                 )
             )
 
@@ -139,6 +143,7 @@ class Trading212Connector(BrokerConnector):
                     average_price=None,
                     current_value=cash_value,
                     currency=currency,
+                    canonical_symbol=currency,
                 )
             )
         return positions
@@ -183,6 +188,26 @@ class Trading212Connector(BrokerConnector):
 
 def _decimal_or_none(value: Any) -> Decimal | None:
     return None if value is None else Decimal(str(value))
+
+
+def _canonical_symbol(ticker: str) -> str:
+    parts = ticker.upper().split("_")
+    if parts and parts[-1] == "EQ":
+        parts.pop()
+    if len(parts) > 1 and parts[-1] in {
+        "AU",
+        "CA",
+        "CH",
+        "DE",
+        "ES",
+        "FR",
+        "IT",
+        "NL",
+        "UK",
+        "US",
+    }:
+        parts.pop()
+    return "_".join(parts) or ticker.upper()
 
 
 def _timestamp(value: str) -> datetime:
