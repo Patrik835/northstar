@@ -222,6 +222,8 @@ errors; provider-specific payloads do not leak into route handlers or the fronte
 - Live Invest/Stocks ISA API with HTTP Basic authentication using API key and secret.
 - Import current positions, cash, orders/fills, dividends, deposits, withdrawals, and
   fees exposed by the account.
+- Retain Trading 212's per-position and account-summary unrealized P/L in the primary
+  account currency and convert it to EUR with the synchronized position values.
 - Orders/fills, dividends, and cash movements use provider `nextPagePath` pagination,
   per-stream resumable cursors, bounded pages per run, and idempotent transaction storage.
 - Rate-limit-aware retry, canonical instruments, non-EUR support, and verified asset types
@@ -422,7 +424,7 @@ Status meanings:
 | Admin user management | Complete | Admin can list and create users. |
 | Encrypted broker credentials and setup guides | Complete | AES-256-GCM, masked hints, read-only guidance, deletion, and provider-validated credential replacement exist. Reconnect responses/forms never expose or prefill saved secrets. |
 | Multiple labelled accounts per provider | Planned | Current schema permits only one connection per user/provider. |
-| Trading 212 current positions, cash, recent activity, and snapshot | Partial | Live connector, canonical instruments with provider-verified stock/ETF types, EUR conversion, rate-limit-aware retry, paginated orders/dividends/cash history, resumable per-stream cursors, and idempotency coverage work. Real-account backfill verification and deeper reconciliation remain. |
+| Trading 212 current positions, cash, recent activity, and snapshot | Partial | Live connector, canonical instruments with provider-verified stock/ETF types, per-position and snapshot unrealized P/L, EUR conversion, rate-limit-aware retry, paginated orders/dividends/cash history, resumable per-stream cursors, and idempotency coverage work. Real-account backfill verification and deeper reconciliation remain. |
 | Binance Spot connector | Partial | Signed read-only authentication, Spot balances, EUR valuation, discoverable Spot-pair trades, trade/withdrawal fees, completed deposits/withdrawals, asset distributions, stable deduplication, one-time upgrade backfill, snapshots, refresh/scheduling, and mocked contracts exist. Real-account reconciliation and Binance's symbol-constrained fully sold-out/full-history gap remain. |
 | eToro periodic connector and month-end history | Partial | Public API authentication, aggregate positions/cash/copy value, instrument metadata, dedicated Real-account P&L enrichment, provider/EUR P&L persistence on positions and snapshots, closed-trade history, valuations, manual/periodic/month-end sync, and mocked contracts exist. Broader history reconciliation and exact coverage of every eToro product remain. |
 | Provider-specific CSV data | Complete | Trading 212 Crypto CSV upload, validation, duplicate protection, transaction storage, holdings reconstruction, current-price/fallback valuation, snapshots, and repeat-import UI work. Generic stock/crypto CSV and manual entry are intentionally out of scope. |
@@ -433,7 +435,7 @@ Status meanings:
 | Connection freshness visibility | Complete | Connection cards distinguish fresh, stale, and never-synchronized sources, show the last successful sync/import, preserve it across failures, and show the latest failed attempt. Live sources become stale after two configured synchronization intervals. |
 | Goals, risk tolerance, and time horizon | Complete | Profile API and UI are functional. |
 | Basic portfolio summary | Partial | EUR total, position count, and source allocation work; the full dashboard does not. |
-| Consolidated and per-platform holdings | Partial | A searchable responsive holdings page groups stocks/ETFs, crypto, cash, and other assets; it supports combined and broker-specific views with expandable original-currency/source detail. Sorting controls, gain/loss, activity, and dedicated instrument routes remain. |
+| Consolidated and per-platform holdings | Partial | A searchable responsive holdings page groups stocks/ETFs, crypto, cash, and other assets; combined cards and instrument rows show available broker-reported P/L, partial coverage is labelled, and expanded details preserve each source's original/EUR P/L. Sorting controls, independently calculated gain/loss, activity, and dedicated instrument routes remain. |
 | Scalable source-management UI | Complete | Connected sources use compact management rows; a searchable/filterable directory separates live API connections from file imports and scales without one oversized setup card per provider. |
 | Transactions, daily history, performance, and risk analytics | Planned | Core tables exist; APIs, calculations, charts, and pages do not. |
 | News and financial calendar | Planned | Finnhub interface and scheduler placeholder exist. |

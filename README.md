@@ -13,7 +13,8 @@ manual refresh, persisted ECB currency conversion, observable synchronization ru
 rate-limit-aware retry/backoff, visible connection freshness, and
 the basic aggregated dashboard are implemented. Canonical instruments now combine equivalent holdings across
 brokers, while a searchable holdings view exposes consolidated stock/ETF and crypto
-positions plus each platform's original detail. Binance and eToro both have automated
+positions, subtle Trading 212/eToro reported P/L with coverage labels, and each
+platform's original detail. Binance and eToro both have automated
 contract coverage and successful real read-only account smoke tests.
 Trading 212 Crypto is supported through repeatable, deduplicated CSV imports because its
 separate Crypto account has no Public API. Advanced analytics, real estate, news, and AI

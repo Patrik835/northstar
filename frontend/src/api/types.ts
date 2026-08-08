@@ -69,6 +69,10 @@ export type HoldingSource = {
   provider_instrument_id: string;
   provider_symbol: string;
   provider_name: string | null;
+  canonical_instrument_id: string | null;
+  canonical_symbol: string;
+  canonical_name: string;
+  canonical_isin: string | null;
   quantity: string;
   average_price: string | null;
   current_value: string;
@@ -82,13 +86,18 @@ export type HoldingSource = {
 
 export type Holding = {
   key: string;
+  grouping: "instrument" | "company";
+  instrument_count: number;
   canonical_instrument_id: string | null;
   symbol: string;
+  symbols: string[];
   name: string;
   isin: string | null;
   asset_type: AssetType;
-  total_quantity: string;
+  total_quantity: string | null;
   total_value_eur: string;
+  reported_pnl_eur: string | null;
+  reported_pnl_source_count: number;
   portfolio_percentage: string;
   source_count: number;
   sources: HoldingSource[];
@@ -97,6 +106,8 @@ export type Holding = {
 export type HoldingsResponse = {
   currency: "EUR";
   total_value_eur: string;
+  reported_pnl_eur: string | null;
+  reported_pnl_position_count: number;
   instrument_count: number;
   position_count: number;
   unmatched_positions: number;

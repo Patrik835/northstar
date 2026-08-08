@@ -27,7 +27,9 @@ This direction matches the strongest capabilities offered by mature trackers: ge
 - Multi-user data ownership and user-scoped portfolio/connection repositories.
 - Public registration, email verification/resend, login/logout, opaque cookie sessions, password changes, account lockout, and admin-created users.
 - Argon2 password hashing and AES-256-GCM broker credential encryption.
-- Trading 212 credential validation, positions, cash, recent activity, daily snapshot, scheduled/manual synchronization, and limited-permission handling.
+- Trading 212 credential validation, positions, cash, provider-reported unrealized P/L,
+  recent activity, daily snapshot, scheduled/manual synchronization, and
+  limited-permission handling.
 - Binance signed authentication, Spot balances, EUR market-pair valuation, discoverable
   Spot trades, completed transfers, trade/withdrawal fees, positive asset distributions,
   one-time upgrade backfill, snapshots, and scheduled/manual synchronization.
@@ -49,7 +51,8 @@ This direction matches the strongest capabilities offered by mature trackers: ge
 - Trading 212 synchronization is covered for repeat-run transaction, position, and daily
   snapshot idempotency, including resumed and post-backfill incremental history.
 - Canonical instruments and provider aliases that combine equivalent securities and crypto while preserving every broker's original identifiers.
-- Searchable holdings UI with consolidated stock/ETF and crypto views, per-platform filtering, and expandable source-currency details.
+- Searchable holdings UI with consolidated stock/ETF and crypto views, per-platform
+  filtering, aggregated broker-reported P/L, and expandable per-source details.
 - Trading 212 Crypto CSV imports with validation, overlap-safe deduplication, transaction-backed balance reconstruction, current Binance pricing, and explicit valuation fallback warnings.
 - Compact connected-source management plus a searchable/filterable source directory designed to accommodate additional brokers and import types.
 - Connection setup guides, encrypted credential storage, masked hints, secure reconnect,
@@ -57,7 +60,7 @@ This direction matches the strongest capabilities offered by mature trackers: ge
 - Goals, risk tolerance, and time-horizon profile.
 - Basic dashboard total, position count, and allocation-by-source API/UI.
 - Core database tables for positions, transactions, snapshots, news, recommendations, and chat history.
-- Fifty backend tests currently pass, including crypto CSV parsing/reconstruction,
+- Fifty-one backend tests currently pass, including crypto CSV parsing/reconstruction,
   canonical matching, holdings aggregation, sync-run state handling, and mocked Binance,
   eToro, ECB, and public crypto-price contracts; frontend lint and the production build
   also pass.
@@ -144,7 +147,7 @@ All implementation tickets should target approximately 1–3 working days and in
 ### Milestone 2 — Portfolio Analytics and Usable Dashboard
 
 25. Build a holdings API/page with search, sorting, grouping, and original/EUR values. (Partial: API, search, asset/platform grouping, fixed value ordering, and both currencies are implemented; selectable sorting remains.)
-26. Build holding detail with quantity, cost, value, gain/loss, source accounts, and activity. (Partial: expandable quantity, average price, value, aliases, source accounts, and freshness are implemented; gain/loss and activity remain.)
+26. Build holding detail with quantity, cost, value, gain/loss, source accounts, and activity. (Partial: expandable quantity, average price, value, aliases, source accounts, freshness, and aggregated/per-source broker-reported P/L are implemented; calculated gain/loss and activity remain.)
 27. Build a unified transaction/activity API and filterable page.
 28. Add editable categories, tags, notes, and target allocation to holdings.
 29. Build consolidated daily portfolio-history queries with 1M/3M/6M/1Y/all ranges.

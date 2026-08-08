@@ -48,25 +48,19 @@ class Trading212Connector(BrokerConnector):
     def _client(self) -> httpx.AsyncClient:
         return httpx.AsyncClient(
             base_url=self.base_url,
-            auth=httpx.BasicAuth(
-                self.credentials["api_key"], self.credentials["api_secret"]
-            ),
+            auth=httpx.BasicAuth(self.credentials["api_key"], self.credentials["api_secret"]),
             headers={"Accept": "application/json"},
             timeout=httpx.Timeout(15.0),
             transport=self._transport,
         )
 
-    async def _get(
-        self, path: str, params: dict[str, str | int] | None = None
-    ) -> Any:
+    async def _get(self, path: str, params: dict[str, str | int] | None = None) -> Any:
         async def send() -> httpx.Response:
             async with self._client() as client:
                 return await client.get(path, params=params)
 
         try:
-            response = await request_with_backoff(
-                send, reset_header="x-ratelimit-reset"
-            )
+            response = await request_with_backoff(send, reset_header="x-ratelimit-reset")
         except httpx.TimeoutException as exc:
             raise BrokerUnavailableError(
                 "Trading 212 did not respond in time. Please try again."
@@ -91,9 +85,7 @@ class Trading212Connector(BrokerConnector):
                 "Check the key's IP restriction and read permissions."
             )
         if response.status_code == 429:
-            retry_after = retry_after_seconds(
-                response, reset_header="x-ratelimit-reset"
-            )
+            retry_after = retry_after_seconds(response, reset_header="x-ratelimit-reset")
             suffix = (
                 f" Try again in about {max(1, round(retry_after))} seconds."
                 if retry_after is not None
@@ -147,6 +139,7 @@ class Trading212Connector(BrokerConnector):
                     currency=str(wallet.get("currency") or instrument.get("currency") or "EUR"),
                     canonical_symbol=_canonical_symbol(ticker),
                     isin=isin,
+                    reported_pnl=_decimal_or_none(wallet.get("unrealizedProfitLoss")),
                 )
             )
 
@@ -265,10 +258,12 @@ class Trading212Connector(BrokerConnector):
 
     async def fetch_snapshot(self, snapshot_date: date) -> ConnectorSnapshot:
         summary = await self._summary()
+        investments = summary.get("investments") or {}
         return ConnectorSnapshot(
             snapshot_date=snapshot_date,
             total_value=Decimal(str(summary.get("totalValue", 0))),
             currency=str(summary["currency"]),
+            reported_pnl=_decimal_or_none(investments.get("unrealizedProfitLoss")),
         )
 
     async def _summary(self) -> dict[str, Any]:
@@ -276,6 +271,7 @@ class Trading212Connector(BrokerConnector):
             await self.validate_credentials()
         assert self._account_summary is not None
         return self._account_summary
+
 
 def _decimal_or_none(value: Any) -> Decimal | None:
     return None if value is None else Decimal(str(value))
@@ -335,9 +331,7 @@ def _map_orders(items: list[dict[str, Any]]) -> list[ConnectorTransaction]:
                 external_id=f"order-fill:{fill.get('id') or order.get('id')}",
                 ticker=str((order.get("instrument") or {}).get("ticker") or order.get("ticker")),
                 transaction_type=(
-                    TransactionType.BUY
-                    if order.get("side") == "BUY"
-                    else TransactionType.SELL
+                    TransactionType.BUY if order.get("side") == "BUY" else TransactionType.SELL
                 ),
                 quantity=abs(quantity) if quantity is not None else None,
                 price=price,

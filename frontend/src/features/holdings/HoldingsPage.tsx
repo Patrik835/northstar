@@ -31,6 +31,8 @@ const assetLabels: Record<AssetType, string> = {
 };
 
 type AssetGroup = "all" | "equities" | "crypto" | "other";
+type SortKey = "value" | "pnl";
+type SortDirection = "asc" | "desc";
 
 function inGroup(type: AssetType, group: AssetGroup) {
   if (group === "all") return true;
@@ -64,6 +66,70 @@ function brokerLabel(broker: Broker) {
   return brokerLabels[broker] ?? broker;
 }
 
+type PnlSummary = {
+  value: number;
+  percentage: number | null;
+  sourceCount: number;
+  totalSources: number;
+};
+
+function summarizePnl(sources: HoldingSource[]): PnlSummary | null {
+  const reported = sources.filter((source) => source.reported_pnl_eur !== null);
+  if (!reported.length) return null;
+  const value = reported.reduce(
+    (total, source) => total + Number(source.reported_pnl_eur),
+    0,
+  );
+  const coveredValue = reported.reduce(
+    (total, source) => total + sourceValue(source),
+    0,
+  );
+  const costBasis = coveredValue - value;
+  return {
+    value,
+    percentage: costBasis > 0 ? (value * 100) / costBasis : null,
+    sourceCount: reported.length,
+    totalSources: sources.length,
+  };
+}
+
+function signedMoney(value: number) {
+  return `${value > 0 ? "+" : ""}${eur.format(value)}`;
+}
+
+function signedPercentage(value: number) {
+  return `${value > 0 ? "+" : ""}${value.toFixed(2)}%`;
+}
+
+function PnlLine({
+  summary,
+  unavailable = false,
+}: {
+  summary: PnlSummary | null;
+  unavailable?: boolean;
+}) {
+  if (!summary) {
+    return unavailable ? <span className="pnl-summary unavailable">P/L unavailable</span> : null;
+  }
+  const tone =
+    summary.value > 0 ? "positive" : summary.value < 0 ? "negative" : "neutral";
+  const partial = summary.sourceCount < summary.totalSources;
+  return (
+    <span
+      className={`pnl-summary ${tone}`}
+      title="Broker-reported P/L for sources that provide it"
+    >
+      <span>P/L {signedMoney(summary.value)}</span>
+      {summary.percentage !== null && <span>{signedPercentage(summary.percentage)}</span>}
+      {partial && (
+        <em title={`Reported by ${summary.sourceCount} of ${summary.totalSources} sources`}>
+          partial
+        </em>
+      )}
+    </span>
+  );
+}
+
 export function HoldingsPage() {
   const [portfolio, setPortfolio] = useState<HoldingsResponse | null>(null);
   const [error, setError] = useState("");
@@ -71,6 +137,8 @@ export function HoldingsPage() {
   const [assetGroup, setAssetGroup] = useState<AssetGroup>("all");
   const [platform, setPlatform] = useState<Broker | "all">("all");
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [sortKey, setSortKey] = useState<SortKey>("value");
+  const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
 
   useEffect(() => {
     api<HoldingsResponse>("/holdings")
@@ -95,30 +163,82 @@ export function HoldingsPage() {
           : holding.sources.filter((source) => source.broker === platform);
       if (!sources.length) return [];
       const totalValue = sources.reduce((total, source) => total + sourceValue(source), 0);
-      const totalQuantity = sources.reduce(
-        (total, source) => total + sourceQuantity(source),
-        0,
+      const instrumentIds = new Set(
+        sources.map(
+          (source) =>
+            source.canonical_instrument_id ??
+            `${source.broker}:${source.provider_instrument_id}`,
+        ),
       );
-      return [{ ...holding, sources, totalValue, totalQuantity }];
+      const symbols = Array.from(
+        new Set(sources.map((source) => source.canonical_symbol)),
+      ).sort();
+      const isCompanyGroup = instrumentIds.size > 1;
+      const totalQuantity = isCompanyGroup
+        ? null
+        : sources.reduce((total, source) => total + sourceQuantity(source), 0);
+      return [
+        {
+          ...holding,
+          grouping: isCompanyGroup ? ("company" as const) : ("instrument" as const),
+          instrument_count: instrumentIds.size,
+          symbol: isCompanyGroup ? symbols.join(" / ") : symbols[0],
+          symbols,
+          name: isCompanyGroup ? holding.name : sources[0].canonical_name,
+          isin: isCompanyGroup ? null : sources[0].canonical_isin,
+          sources,
+          totalValue,
+          totalQuantity,
+          pnl: summarizePnl(sources),
+        },
+      ];
     });
   }, [platform, portfolio]);
 
   const visibleHoldings = useMemo(() => {
     const needle = search.trim().toLowerCase();
-    return scopedHoldings.filter((holding) => {
-      if (!inGroup(holding.asset_type, assetGroup)) return false;
-      if (!needle) return true;
-      return [
-        holding.symbol,
-        holding.name,
-        holding.isin,
-        ...holding.sources.flatMap((source) => [
-          source.provider_symbol,
-          source.provider_name,
-        ]),
-      ].some((value) => value?.toLowerCase().includes(needle));
-    });
-  }, [assetGroup, scopedHoldings, search]);
+    return scopedHoldings
+      .filter((holding) => {
+        if (!inGroup(holding.asset_type, assetGroup)) return false;
+        if (!needle) return true;
+        return [
+          holding.symbol,
+          holding.name,
+          holding.isin,
+          ...holding.symbols,
+          ...holding.sources.flatMap((source) => [
+            source.provider_symbol,
+            source.provider_name,
+            source.canonical_symbol,
+            source.canonical_name,
+            source.canonical_isin,
+          ]),
+        ].some((value) => value?.toLowerCase().includes(needle));
+      })
+      .sort((left, right) => {
+        if (sortKey === "pnl") {
+          if (left.pnl === null && right.pnl === null) {
+            return left.symbol.localeCompare(right.symbol);
+          }
+          if (left.pnl === null) return 1;
+          if (right.pnl === null) return -1;
+        }
+        const leftValue = sortKey === "value" ? left.totalValue : left.pnl!.value;
+        const rightValue = sortKey === "value" ? right.totalValue : right.pnl!.value;
+        const difference = leftValue - rightValue;
+        if (difference === 0) return left.symbol.localeCompare(right.symbol);
+        return sortDirection === "asc" ? difference : -difference;
+      });
+  }, [assetGroup, scopedHoldings, search, sortDirection, sortKey]);
+
+  function changeSort(nextKey: SortKey) {
+    if (sortKey === nextKey) {
+      setSortDirection((current) => (current === "desc" ? "asc" : "desc"));
+      return;
+    }
+    setSortKey(nextKey);
+    setSortDirection("desc");
+  }
 
   const equityValue = scopedHoldings
     .filter((holding) => inGroup(holding.asset_type, "equities"))
@@ -126,6 +246,17 @@ export function HoldingsPage() {
   const cryptoValue = scopedHoldings
     .filter((holding) => holding.asset_type === "crypto")
     .reduce((total, holding) => total + holding.totalValue, 0);
+  const portfolioPnl = summarizePnl(scopedHoldings.flatMap((holding) => holding.sources));
+  const equityPnl = summarizePnl(
+    scopedHoldings
+      .filter((holding) => inGroup(holding.asset_type, "equities"))
+      .flatMap((holding) => holding.sources),
+  );
+  const cryptoPnl = summarizePnl(
+    scopedHoldings
+      .filter((holding) => holding.asset_type === "crypto")
+      .flatMap((holding) => holding.sources),
+  );
 
   return (
     <>
@@ -159,7 +290,10 @@ export function HoldingsPage() {
         >
           <span>{platform === "all" ? "Combined portfolio" : brokerLabel(platform)}</span>
           <strong>{portfolio ? eur.format(selectedTotal) : "—"}</strong>
-          <small>{platform === "all" ? "Across every connected platform" : "Platform value"}</small>
+          <small>
+            {platform === "all" ? "Across every connected platform" : "Platform value"}
+          </small>
+          {portfolio && <PnlLine summary={portfolioPnl} unavailable />}
         </button>
         <button
           type="button"
@@ -171,6 +305,7 @@ export function HoldingsPage() {
           <span>Stocks & ETFs</span>
           <strong>{portfolio ? eur.format(equityValue) : "—"}</strong>
           <small>Combined securities</small>
+          {portfolio && <PnlLine summary={equityPnl} unavailable />}
         </button>
         <button
           type="button"
@@ -182,6 +317,7 @@ export function HoldingsPage() {
           <span>Crypto</span>
           <strong>{portfolio ? eur.format(cryptoValue) : "—"}</strong>
           <small>Across crypto platforms</small>
+          {portfolio && <PnlLine summary={cryptoPnl} unavailable />}
         </button>
         <article className="holding-metric count">
           <span>Instruments</span>
@@ -246,16 +382,35 @@ export function HoldingsPage() {
 
         {visibleHoldings.length ? (
           <div className="holdings-table">
-            <div className="holding-table-head" aria-hidden="true">
+            <div className="holding-table-head">
               <span>Instrument</span>
               <span>Type</span>
               <span>Quantity</span>
               <span>Platforms</span>
-              <span>Current value</span>
+              <span className="holding-sort-column">
+                <button
+                  type="button"
+                  className={sortKey === "value" ? "active" : ""}
+                  aria-pressed={sortKey === "value"}
+                  onClick={() => changeSort("value")}
+                >
+                  Value {sortKey === "value" && (sortDirection === "desc" ? "↓" : "↑")}
+                </button>
+                <span>/</span>
+                <button
+                  type="button"
+                  className={sortKey === "pnl" ? "active" : ""}
+                  aria-pressed={sortKey === "pnl"}
+                  onClick={() => changeSort("pnl")}
+                >
+                  P/L {sortKey === "pnl" && (sortDirection === "desc" ? "↓" : "↑")}
+                </button>
+              </span>
               <span />
             </div>
             {visibleHoldings.map((holding) => {
               const isOpen = expanded === holding.key;
+              const isCompanyGroup = holding.grouping === "company";
               return (
                 <article className={`holding-entry${isOpen ? " open" : ""}`} key={holding.key}>
                   <button
@@ -265,11 +420,15 @@ export function HoldingsPage() {
                   >
                     <span className="holding-identity">
                       <span className={`asset-mark ${holding.asset_type}`}>
-                        {holding.symbol.slice(0, 2)}
+                        {(isCompanyGroup ? holding.name : holding.symbol).slice(0, 2)}
                       </span>
                       <span>
-                        <strong>{holding.symbol}</strong>
-                        <small>{holding.name}</small>
+                        <strong>{isCompanyGroup ? holding.name : holding.symbol}</strong>
+                        <small>
+                          {isCompanyGroup
+                            ? `${holding.symbols.join(" · ")} · combined company exposure`
+                            : holding.name}
+                        </small>
                       </span>
                     </span>
                     <span>
@@ -278,7 +437,9 @@ export function HoldingsPage() {
                       </span>
                     </span>
                     <span className="quantity-cell">
-                      {quantity.format(holding.totalQuantity)}
+                      {holding.totalQuantity === null
+                        ? `${holding.instrument_count} securities`
+                        : quantity.format(holding.totalQuantity)}
                     </span>
                     <span className="source-badges">
                       {holding.sources.map((source) => (
@@ -297,6 +458,7 @@ export function HoldingsPage() {
                           ? `${((holding.totalValue * 100) / selectedTotal).toFixed(2)}%`
                           : "0.00%"}
                       </small>
+                      <PnlLine summary={holding.pnl} />
                     </span>
                     <span className="expand-mark">{isOpen ? "−" : "+"}</span>
                   </button>
@@ -322,7 +484,8 @@ export function HoldingsPage() {
 
 type ScopedHolding = Holding & {
   totalValue: number;
-  totalQuantity: number;
+  totalQuantity: number | null;
+  pnl: PnlSummary | null;
 };
 
 function HoldingDetails({ holding }: { holding: ScopedHolding }) {
@@ -331,14 +494,26 @@ function HoldingDetails({ holding }: { holding: ScopedHolding }) {
       <div className="canonical-strip">
         <span className="canonical-check">✓</span>
         <div>
-          <strong>Canonical instrument</strong>
-          <p>
-            {holding.isin ? `Matched by ISIN ${holding.isin}` : `Matched as ${holding.symbol}`}
-            {holding.sources.length > 1
-              ? ` · ${holding.sources.length} broker aliases combined`
-              : " · 1 broker alias"}
-          </p>
+          <strong>
+            {holding.grouping === "company" ? "Company exposure" : "Canonical instrument"}
+          </strong>
+          {holding.grouping === "company" ? (
+            <p>
+              {holding.instrument_count} listed securities shown together · quantities remain
+              separate below
+            </p>
+          ) : (
+            <p>
+              {holding.isin
+                ? `Matched by ISIN ${holding.isin}`
+                : `Matched as ${holding.symbol}`}
+              {holding.sources.length > 1
+                ? ` · ${holding.sources.length} broker aliases combined`
+                : " · 1 broker alias"}
+            </p>
+          )}
         </div>
+        <PnlLine summary={holding.pnl} />
       </div>
       <div className="source-detail-grid">
         {holding.sources.map((source) => (
@@ -371,14 +546,28 @@ function HoldingDetails({ holding }: { holding: ScopedHolding }) {
                 <dt>Original value</dt>
                 <dd>{originalMoney(source.current_value, source.currency)}</dd>
               </div>
-              {source.reported_pnl !== null && (
-                <div>
-                  <dt>eToro P/L</dt>
-                  <dd className={Number(source.reported_pnl) >= 0 ? "positive" : "negative"}>
-                    {originalMoney(source.reported_pnl, source.currency)}
+              <div>
+                <dt>Reported P/L</dt>
+                {source.reported_pnl !== null ? (
+                  <dd
+                    className={`pnl-source-value ${Number(source.reported_pnl) >= 0 ? "positive" : "negative"}`}
+                  >
+                    <span>{originalMoney(source.reported_pnl, source.currency)}</span>
+                    {source.reported_pnl_eur !== null && source.currency !== "EUR" && (
+                      <small>{signedMoney(Number(source.reported_pnl_eur))}</small>
+                    )}
                   </dd>
-                </div>
-              )}
+                ) : (
+                  <dd className="unavailable">Not reported</dd>
+                )}
+              </div>
+              <div>
+                <dt>Security</dt>
+                <dd title={source.canonical_name}>
+                  {source.canonical_symbol}
+                  {source.canonical_isin ? ` · ${source.canonical_isin}` : ""}
+                </dd>
+              </div>
               <div>
                 <dt>Provider ID</dt>
                 <dd title={source.provider_instrument_id}>{source.provider_instrument_id}</dd>

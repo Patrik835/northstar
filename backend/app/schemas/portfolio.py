@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime
 from decimal import Decimal
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -34,6 +35,10 @@ class HoldingSource(BaseModel):
     provider_instrument_id: str
     provider_symbol: str
     provider_name: str | None
+    canonical_instrument_id: uuid.UUID | None
+    canonical_symbol: str
+    canonical_name: str
+    canonical_isin: str | None
     quantity: Decimal
     average_price: Decimal | None
     current_value: Decimal
@@ -47,13 +52,18 @@ class HoldingSource(BaseModel):
 
 class Holding(BaseModel):
     key: str
+    grouping: Literal["instrument", "company"]
+    instrument_count: int
     canonical_instrument_id: uuid.UUID | None
     symbol: str
+    symbols: list[str]
     name: str
     isin: str | None
     asset_type: AssetType
-    total_quantity: Decimal
+    total_quantity: Decimal | None
     total_value_eur: Decimal
+    reported_pnl_eur: Decimal | None
+    reported_pnl_source_count: int
     portfolio_percentage: Decimal
     source_count: int
     sources: list[HoldingSource]
@@ -62,6 +72,8 @@ class Holding(BaseModel):
 class HoldingsResponse(BaseModel):
     currency: str = "EUR"
     total_value_eur: Decimal
+    reported_pnl_eur: Decimal | None
+    reported_pnl_position_count: int
     instrument_count: int
     position_count: int
     unmatched_positions: int

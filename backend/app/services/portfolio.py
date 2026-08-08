@@ -1,6 +1,8 @@
+import re
 import uuid
 from decimal import ROUND_HALF_UP, Decimal
 
+from app.models.enums import AssetType
 from app.repositories.portfolio import PortfolioRepository
 from app.schemas.portfolio import (
     AllocationItem,
@@ -15,6 +17,33 @@ def percentage(value: Decimal, total: Decimal) -> Decimal:
     if not total:
         return Decimal("0")
     return (value * 100 / total).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+SHARE_CLASS_SUFFIX = re.compile(
+    r"(?:\s*\((?:class|series)\s+[a-z0-9.-]+\)|"
+    r"\s+(?:class|series)\s+[a-z0-9.-]+(?:\s+shares?)?)$",
+    re.IGNORECASE,
+)
+LEGAL_SUFFIX = re.compile(
+    r"\s+(?:incorporated|inc|corporation|corp|company|co|limited|ltd|plc|"
+    r"s\.a\.?|sa|a\.g\.?|ag|n\.v\.?|nv)$",
+    re.IGNORECASE,
+)
+
+
+def company_identity(name: str) -> tuple[str, str] | None:
+    """Return a conservative issuer key for grouping listed stock classes.
+
+    Canonical instruments remain distinct securities. This key only groups their
+    portfolio presentation when broker names differ by share class/legal suffix.
+    """
+
+    display_name = SHARE_CLASS_SUFFIX.sub("", name.strip()).strip(" ,-.")
+    comparable_name = LEGAL_SUFFIX.sub("", display_name).strip(" ,-.")
+    key = re.sub(r"[^a-z0-9]+", " ", comparable_name.casefold()).strip()
+    if len(key) < 3:
+        return None
+    return key, display_name
 
 
 class PortfolioService:
@@ -50,22 +79,62 @@ class PortfolioService:
     async def holdings(self, user_id: uuid.UUID) -> HoldingsResponse:
         rows = await self.repository.holding_positions(user_id)
         total = sum((row.position.current_value_eur for row in rows), Decimal(0))
-        grouped: dict[str, list] = {}
+        reported_pnl_rows = [
+            row.position.reported_pnl_eur
+            for row in rows
+            if row.position.reported_pnl_eur is not None
+        ]
+        canonical_groups: dict[str, list] = {}
         for row in rows:
             key = (
                 str(row.instrument.id)
                 if row.instrument
                 else f"unmatched:{row.position.id}"
             )
-            grouped.setdefault(key, []).append(row)
+            canonical_groups.setdefault(key, []).append(row)
+
+        grouped: dict[str, list] = {}
+        group_names: dict[str, str] = {}
+        for canonical_key, instrument_rows in canonical_groups.items():
+            instrument = instrument_rows[0].instrument
+            company = (
+                company_identity(instrument.name)
+                if instrument and instrument.asset_type is AssetType.STOCK
+                else None
+            )
+            key = f"company:{company[0]}" if company else canonical_key
+            grouped.setdefault(key, []).extend(instrument_rows)
+            if company:
+                current_name = group_names.get(key)
+                if current_name is None or len(company[1]) < len(current_name):
+                    group_names[key] = company[1]
 
         holdings: list[Holding] = []
         for key, instrument_rows in grouped.items():
             first = instrument_rows[0]
-            instrument = first.instrument
+            instruments = {
+                row.instrument.id: row.instrument
+                for row in instrument_rows
+                if row.instrument is not None
+            }
+            instrument = next(iter(instruments.values())) if len(instruments) == 1 else None
+            is_company_group = len(instruments) > 1
+            symbols = sorted(
+                {
+                    row.instrument.canonical_symbol
+                    if row.instrument
+                    else row.position.ticker
+                    for row in instrument_rows
+                }
+            )
             value = sum(
                 (row.position.current_value_eur for row in instrument_rows), Decimal(0)
             )
+            instrument_pnl_rows = [
+                row.position.reported_pnl_eur
+                for row in instrument_rows
+                if row.position.reported_pnl_eur is not None
+            ]
             sources = [
                 HoldingSource(
                     broker=row.broker,
@@ -73,6 +142,20 @@ class PortfolioService:
                     provider_instrument_id=row.position.instrument_id,
                     provider_symbol=row.position.ticker,
                     provider_name=row.position.name,
+                    canonical_instrument_id=(
+                        row.instrument.id if row.instrument else None
+                    ),
+                    canonical_symbol=(
+                        row.instrument.canonical_symbol
+                        if row.instrument
+                        else row.position.ticker
+                    ),
+                    canonical_name=(
+                        row.instrument.name
+                        if row.instrument
+                        else row.position.name or row.position.ticker
+                    ),
+                    canonical_isin=row.instrument.isin if row.instrument else None,
                     quantity=row.position.quantity,
                     average_price=row.position.average_price,
                     current_value=row.position.current_value,
@@ -88,23 +171,37 @@ class PortfolioService:
             holdings.append(
                 Holding(
                     key=key,
+                    grouping="company" if is_company_group else "instrument",
+                    instrument_count=max(len(instruments), 1),
                     canonical_instrument_id=instrument.id if instrument else None,
-                    symbol=(
-                        instrument.canonical_symbol if instrument else first.position.ticker
-                    ),
+                    symbol=(instrument.canonical_symbol if instrument else " / ".join(symbols)),
+                    symbols=symbols,
                     name=(
                         instrument.name
                         if instrument
-                        else first.position.name or first.position.ticker
+                        else group_names.get(key)
+                        or first.position.name
+                        or first.position.ticker
                     ),
                     isin=instrument.isin if instrument else None,
                     asset_type=(
                         instrument.asset_type if instrument else first.position.asset_type
                     ),
-                    total_quantity=sum(
-                        (row.position.quantity for row in instrument_rows), Decimal(0)
+                    total_quantity=(
+                        sum(
+                            (row.position.quantity for row in instrument_rows),
+                            Decimal(0),
+                        )
+                        if not is_company_group
+                        else None
                     ),
                     total_value_eur=value,
+                    reported_pnl_eur=(
+                        sum(instrument_pnl_rows, Decimal(0))
+                        if instrument_pnl_rows
+                        else None
+                    ),
+                    reported_pnl_source_count=len(instrument_pnl_rows),
                     portfolio_percentage=percentage(value, total),
                     source_count=len(sources),
                     sources=sources,
@@ -119,6 +216,10 @@ class PortfolioService:
             )
         return HoldingsResponse(
             total_value_eur=total,
+            reported_pnl_eur=(
+                sum(reported_pnl_rows, Decimal(0)) if reported_pnl_rows else None
+            ),
+            reported_pnl_position_count=len(reported_pnl_rows),
             instrument_count=len(holdings),
             position_count=len(rows),
             unmatched_positions=sum(row.instrument is None for row in rows),

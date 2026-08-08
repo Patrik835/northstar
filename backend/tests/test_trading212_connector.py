@@ -26,6 +26,12 @@ def _transport(
             payload = {
                 "currency": "EUR",
                 "totalValue": 1350.5,
+                "investments": {
+                    "currentValue": 1235.5,
+                    "realizedProfitLoss": 30,
+                    "totalCost": 1100,
+                    "unrealizedProfitLoss": 135.5,
+                },
                 "cash": {
                     "availableToTrade": 100,
                     "inPies": 10,
@@ -43,7 +49,13 @@ def _transport(
                         "name": instrument_name,
                         "ticker": "AAPL_US_EQ",
                     },
-                    "walletImpact": {"currency": "EUR", "currentValue": 220.5},
+                    "walletImpact": {
+                        "currency": "EUR",
+                        "currentValue": 220.5,
+                        "fxImpact": 4.5,
+                        "totalCost": 200,
+                        "unrealizedProfitLoss": 20.5,
+                    },
                 }
             ]
         elif request.url.path.endswith("/metadata/instruments"):
@@ -103,11 +115,13 @@ async def test_trading212_validates_and_maps_portfolio() -> None:
     assert positions[0].ticker == "AAPL_US_EQ"
     assert positions[0].asset_type is AssetType.STOCK
     assert positions[0].current_value == Decimal("220.5")
+    assert positions[0].reported_pnl == Decimal("20.5")
     assert positions[1].asset_type is AssetType.CASH
     assert positions[1].current_value == Decimal("115")
     assert activity[0].transaction_type is TransactionType.BUY
     assert activity[0].external_id == "order-fill:42"
     assert snapshot.total_value == Decimal("1350.5")
+    assert snapshot.reported_pnl == Decimal("135.5")
 
 
 @pytest.mark.asyncio
@@ -163,9 +177,7 @@ async def test_trading212_follows_the_provider_next_page_path() -> None:
                 }
             ],
             "nextPagePath": (
-                None
-                if cursor
-                else "/api/v0/equity/history/orders?limit=50&cursor=12345"
+                None if cursor else "/api/v0/equity/history/orders?limit=50&cursor=12345"
             ),
         }
         return httpx.Response(200, json=payload, request=request)
@@ -194,9 +206,7 @@ async def test_trading212_rejects_an_untrusted_continuation_url() -> None:
     )
 
     with pytest.raises(BrokerUnavailableError, match="invalid history continuation"):
-        await connector.fetch_transaction_page(
-            "orders", "https://example.com/steal-credentials"
-        )
+        await connector.fetch_transaction_page("orders", "https://example.com/steal-credentials")
 
 
 @pytest.mark.asyncio
