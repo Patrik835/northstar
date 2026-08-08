@@ -9,12 +9,14 @@ import { VerifyEmailPage } from "./features/auth/VerifyEmailPage";
 import { ChatPage } from "./features/chat/ChatPage";
 import { ConnectionsPage } from "./features/connections/ConnectionsPage";
 import { DashboardPage } from "./features/dashboard/DashboardPage";
+import { HoldingsPage } from "./features/holdings/HoldingsPage";
 import { ProfilePage } from "./features/profile/ProfilePage";
 import { AppLayout } from "./layouts/AppLayout";
 import { RouterProvider, useRouter } from "./routing/Router";
 
 const pages: Record<string, ReactNode> = {
   "/": <DashboardPage />,
+  "/holdings": <HoldingsPage />,
   "/connections": <ConnectionsPage />,
   "/assistant": <ChatPage />,
   "/profile": <ProfilePage />,

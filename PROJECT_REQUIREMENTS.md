@@ -1,305 +1,426 @@
-# All-in-One Investment Dashboard — Project Requirements
+# Northstar Investment OS — Product and Technical Requirements
 
-## 1. Overview
+> Last reviewed: 2026-08-06
 
-A self-hosted web app (mobile later) that unifies a user's entire investment picture —
-stocks, ETFs, and crypto — across multiple brokers/exchanges into a single dashboard.
-Each user connects their own accounts and gets rich visualizations, trend/comparison
-views, AI-generated portfolio recommendations based on their goals, portfolio-relevant
-news, and an AI chat assistant that has their portfolio and profile as context.
+> Detailed implementation backlog: [NORTHSTAR_ROADMAP.md](NORTHSTAR_ROADMAP.md)
 
-Initial users will be Patrik and his family, but the app should be built as a
-**scalable, general-purpose product**, not a one-off personal script. Prioritize clean
-architecture, extensibility, and security of stored secrets — code and data models
-should make it straightforward to onboard more users, add more data sources, and add
-new features later without rearchitecting. **Phase 1 is web-only**; a mobile app
-(likely React Native, reusing the same backend) is a future phase, not part of this
-build.
+## 1. Product Vision
 
-## 2. Architecture Principles
+Northstar is a private-by-design, EU-focused investment operating system for people
+whose wealth is spread across brokers, exchanges, currencies, and asset classes. It
+must give each user one trustworthy view of what they own, how it is performing, where
+their risk is concentrated, and what needs attention.
 
-These apply across the whole build, not just one section:
+The product begins with stocks, ETFs, cash, and crypto because reliable automated data
+is the foundation for every later feature. It then expands to real estate, bonds,
+pensions, private investments, commodities, precious metals, collectibles, and other
+manually valued assets. Northstar is an investment product, not a trading terminal or
+an everyday budgeting application.
 
-- **Connector pattern for data sources**: each broker/exchange (Trading212, eToro,
-  Binance, future ones) is implemented as a self-contained connector module behind a
-  common interface (e.g. `fetch_positions()`, `fetch_transactions()`,
-  `fetch_snapshot_value()`). Adding a new source should mean writing one new connector,
-  not touching core app logic.
-- **Layered backend**: clear separation between API routes, business/service logic, data
-  access, and external integrations (brokers, OpenAI, news provider). Avoid putting
-  broker/API-specific logic directly in route handlers.
-- **Database migrations**: use a migration tool (e.g. Alembic) from day one so the schema
-  can evolve as features are added, instead of manual DB changes.
-- **Config via environment variables** (API base URLs, secrets, feature flags) — no
-  hardcoded credentials or environment-specific values in code.
-- **API versioning**: prefix backend routes (e.g. `/api/v1/...`) so breaking changes
-  later don't require a frontend rewrite.
-- **Feature-flaggable AI/news features**: since OpenAI and the news provider are paid/
-  rate-limited external services, structure them so they can be toggled off per
-  environment (e.g. for local dev) without breaking the rest of the app.
-- **Testability**: connectors and services should be written so they can be unit-tested
-  with mocked API responses, not only tested against live broker accounts.
-- Deployment target for v1 is Patrik's Raspberry Pi (Section 10), but avoid design choices
-  that would make a later move to a proper cloud host (e.g. for more users/scale) require
-  a rewrite — e.g. don't bake in filesystem paths or single-machine assumptions where
-  avoidable.
+Initial deployment is self-hosted for Patrik and early users on a Raspberry Pi, but the
+application is a general-purpose public product. Architecture, security, data ownership,
+and APIs must support a later move to managed cloud infrastructure without a rewrite.
 
-## 3. Users & Multi-Tenancy
+### 1.1 Target Users
 
-- Multiple users, each with
-  **their own** isolated data:
-  - own login
-  - own broker/exchange connections and API keys
-  - own portfolio positions, snapshots, goals, and dashboard
-  - own AI chat history
-- No cross-user visibility (User A never sees User B's data) unless explicitly added later.
-- No public sign-up flow. Patrik is an **admin** user with access to a small admin UI
-  (a protected screen/section within the app — not a separate app) where he can create
-  new user accounts (username + temporary/initial password). Users log in with those
-  credentials and can change their password afterward from their own settings. (Open
-  signup can be added later if the app grows beyond invite-only — see Section 12.)
+- EU-based self-directed investors with assets held across several platforms.
+- Users who want an EUR-denominated consolidated view while retaining original-currency
+  values.
+- Investors who care about long-term performance, income, allocation, and diversification
+  more than intraday trading.
+- Initial family users, followed by public users who register and verify their email.
 
-## 4. Authentication
+### 1.2 Product Promise
 
-- Simple username + password login, self-built (no third-party auth provider for v1).
-- Passwords hashed with a strong algorithm (bcrypt or argon2) — never stored in plaintext.
-- Session handled via secure, HTTP-only cookies (JWT or server session — Codex to
-  pick a sane default) with reasonable expiry.
-- App is exposed to the internet via Cloudflare Tunnel, so:
-  - Enforce HTTPS (Cloudflare handles TLS termination).
-  - Add basic protections: rate-limit login attempts, lockout/backoff after repeated
-    failures.
-- No password reset / email flow needed for v1 given the small initial user base
-  (Patrik can reset manually via DB/admin script if needed) — but design the User model
-  so email-based reset can be added later without a schema rewrite (e.g. leave room for
-  an email field even if unused in v1).
+- **Complete:** supported APIs plus CSV/manual fallbacks let users represent their full
+  investment portfolio.
+- **Trustworthy:** values are traceable to a source, calculations are deterministic, and
+  stale, missing, estimated, or partially imported data is clearly labelled.
+- **Current:** automated accounts refresh every 1–2 hours at launch, support manual
+  refresh, and display the time of the last successful sync.
+- **Comparable:** original values are retained and normalized to EUR using dated FX rates.
+- **Explainable:** AI may explain verified portfolio calculations but never invent or
+  replace them.
+- **Secure:** integrations are read-only, credentials are encrypted, and all portfolio
+  access is strictly tenant-scoped.
 
-## 5. Data Sources
+## 2. Scope and Phased Roadmap
 
-### 4.1 Trading212 — ✅ Included in v1
-- Used for buying/selling stocks and crypto — active trading account.
-- Official public API (beta): https://t212public-api-docs.redoc.ly/
-- Auth: HTTP Basic (API Key as username, API Secret as password, Base64-encoded).
-- Environments: demo (`demo.trading212.com/api/v0`) and live (`live.trading212.com/api/v0`).
-  **v1 uses the live environment** — these are real portfolios, not test data.
-- Data to pull:
-  - Current portfolio positions (instrument, quantity, value, P&L)
-  - Account cash balance
-  - Order/transaction history (for activity feed / transaction log)
-- Sync approach: **polling** (no webhooks available). Poll periodically (e.g. every
-  15–60 min, configurable) respecting rate-limit headers returned by the API.
-- Each user stores their own Trading212 API Key + Secret (see Section 8 — encrypted at rest).
+The detailed Kanban breakdown lives in `NORTHSTAR_ROADMAP.md`. This section defines the
+required outcome of each product phase.
 
-### 4.2 eToro — ✅ Included in v1
-- User has existing positions, not actively trading there.
-- Only needs the **portfolio value at the close of the last trading day of each month**
-  (a monthly snapshot, not real-time tracking).
-- Official public API: https://api-portal.etoro.com/ (launched Feb 2026, still young —
-  expect possible rough edges/breaking changes).
-- Requires: verified eToro account for the API key to appear in account settings.
-  **Confirmed: all family members have verified eToro accounts**, so the eToro
-  integration should be built as available to every user, not Patrik-only.
-- Auth: API key + user key sent as headers (`x-api-key`, `x-user-key`, `x-request-id`).
-- Relevant endpoints:
-  - Portfolio Management endpoints for tracking P&L / portfolio value.
-  - `market-data/instruments/history/closing-price` for historical closing prices if
-    portfolio-value-at-a-date isn't directly exposed.
-- Sync approach: **scheduled monthly job** — runs shortly after the last trading day of
-  the month closes, fetches portfolio value, stores it as a snapshot. No need for
-  frequent polling.
-- Each user stores their own eToro API Key + User Key (encrypted at rest).
+### Phase 0 — Application Foundation (current baseline)
 
-### 4.3 Binance — ✅ Included in v1 (crypto)
-- Official API: https://developers.binance.com/
-- Auth: API Key + Secret Key, generated by the user in Binance account settings.
-  **Critical: instruct users (in-app, in the settings/connect flow) to create a
-  READ-ONLY key** — enable "Reading" only, disable "Spot & Margin Trading",
-  "Withdrawals", and "Futures". The app should never request trading permissions.
-- Data to pull:
-  - Spot wallet balances (`/api/v3/account`) — current crypto holdings
-  - Current market prices for held assets (public market-data endpoints, no auth needed)
-  - Trade history for the activity feed, similar to Trading212
-- Sync approach: polling, same pattern as Trading212 (respect Binance's request-weight
-  rate limits — these are stricter than Trading212's).
-- Each user stores their own Binance API Key + Secret (encrypted at rest).
+- Versioned FastAPI backend, React web app, PostgreSQL, Alembic migrations, Docker
+  deployment, and scheduled-job infrastructure.
+- Public registration with email verification, login sessions, password changes,
+  account lockout, and admin account management.
+- Tenant-scoped data access and encrypted broker credentials.
+- Connector interface and core portfolio entities.
+- Trading 212 connection and initial portfolio synchronization.
 
-### 4.4 XTB — ❌ Excluded from v1
-- XTB discontinued their public API (xapi.xtb.com / ws.xtb.com) as of March 14, 2025.
-  No official API currently exists. Unofficial/community wrappers exist but rely on
-  undocumented protocols and likely violate XTB's ToS — not suitable to build on.
-- **v1: XTB is completely out of scope.**
-- v2 (future): add manual entry so users can log an XTB portfolio value once a month,
-  similar in spirit to the eToro snapshot but entered by hand instead of pulled via API.
-  Keep the data model open to this so it's a small addition later, not a rearchitecture.
+### Phase 1 — Trustworthy Stock, ETF, and Crypto Core
 
-### 4.5 Future sources
-- Architecture should keep each broker/exchange as a self-contained "connector" module
-  (own auth, own sync logic, own data mapping to the common Position/Transaction/
-  Snapshot model) so more sources can be added later without touching the core app.
+- Production-ready Trading 212, Binance Spot, and eToro read-only connections.
+- Periodic position/value synchronization every 60–120 minutes, defaulting to 120
+  minutes, plus user-triggered refresh.
+- Current eToro positions/value plus retained month-end snapshots.
+- Canonical instruments so the same holding is aggregated correctly across sources.
+- Dated ECB FX rates and EUR conversion while preserving original currencies.
+- Complete, resumable transaction imports with deduplication and reconciliation.
+- CSV imports and manual holdings/transactions for unsupported brokers.
+- Visible freshness, sync progress, partial-import warnings, and safe error recovery.
 
-## 6. AI Features
+### Phase 2 — Portfolio Analytics and Dashboard
 
-### 5.1 AI Provider
-- **OpenAI API** for both recommendations and the Q&A chatbot.
-- API key stored server-side as an app-level secret (not per-user) unless Patrik decides
-  later that each user should bring their own key.
+- Searchable holdings and unified transaction/activity views.
+- Consolidated daily portfolio history and 1M/3M/6M/1Y/all chart ranges.
+- Net contributions, realized/unrealized gain, dividends, fees, currency effects, total
+  return, time-weighted return, and money-weighted return/XIRR.
+- Allocation by asset type, holding, broker, currency, sector, and geography.
+- Performance contribution, drawdown, volatility, concentration, and diversification.
+- Dividend history, yield, income calendar, and projected income.
+- Cached benchmark comparison using configurable investable ETF proxies.
+- Target allocation, drift reporting, and educational rebalancing calculations.
+- CSV exports for holdings, transactions, income, and performance.
 
-### 5.2 Goals & Risk Profile (new user input needed)
-- Add a simple onboarding/settings section where each user sets:
-  - Investment goals (e.g. free-text or simple categories: retirement, wealth growth,
-    short-term savings, etc.)
-  - Risk tolerance (e.g. low / medium / high, or a 1–5 scale)
-  - Optional: target time horizon
-- This profile is stored per user and feeds both the AI recommendations and the chatbot
-  context.
+### Phase 3 — News, Alerts, and Grounded AI
 
-### 5.3 AI Recommendations
-- Periodically (or on-demand via a "Refresh recommendations" button) generate
-  recommendations based on:
-  - Current aggregated portfolio (holdings, allocation, concentration)
-  - The user's stated goals and risk tolerance
-- Example outputs: flag over-concentration in one stock/sector, suggest more
-  diversification, note if current risk level doesn't match stated risk tolerance,
-  general (non-personalized-advice-styled) observations.
-- **Important disclaimer requirement**: all AI recommendations must be clearly labeled
-  as informational/educational only, not financial advice, displayed prominently next to
-  any recommendation output.
-- Recommendations are generated server-side (portfolio data sent to OpenAI as context),
-  cached/stored so they don't need to be regenerated on every page load.
+- Holding-specific company news, earnings, and dividend calendar events.
+- In-app and optional email alerts for sync failures, stale data, allocation drift, and
+  upcoming portfolio events.
+- Cached AI portfolio reviews built only from deterministic analytics.
+- Portfolio-aware chat with persisted, user-owned conversation history.
+- Clear source timestamps, usage limits, redaction, prompt-injection defenses, and a
+  prominent informational-only/not-financial-advice disclaimer.
 
-### 5.4 Portfolio-Based News
-- Show news relevant to the user's actual holdings (e.g. earnings dates/reports for
-  stocks they own).
-- **Recommended news source**: Finnhub (https://finnhub.io) — has a free tier covering
-  company news and an earnings calendar endpoint, which fits the "earnings etc." use
-  case well. Alpha Vantage is a viable alternative (also has a free tier with a NEWS_SENTIMENT
-  endpoint). Codex should pick one, document the choice, and design the news-fetching
-  module so the provider can be swapped later if free-tier limits become a problem.
-- Sync approach: scheduled job (e.g. daily) that fetches news/upcoming earnings for
-  tickers currently held by each user, stored and shown in a "News" section of the
-  dashboard.
+### Phase 4 — Diversified Investment OS
 
-### 5.5 AI Q&A Chatbot
-- Chat interface where the user can ask questions about their own investments
-  ("How diversified am I?", "What's my biggest position?", "Did I get any dividends
-  this month?").
-- Context provided to the model per conversation: the user's current aggregated
-  portfolio (positions, allocation, recent transactions) and their goals/risk profile
-  from Section 6.2. Do not send other users' data.
-- Same "not financial advice" disclaimer applies, shown in the chat UI.
-- Store chat history per user so conversations persist across sessions (simple table:
-  user_id, role, message, created_at).
+- Generic manually valued assets with ownership share, valuation history, income,
+  expenses, liabilities, notes, and documents.
+- Real estate with purchase value, current valuation, rent, costs, mortgage balance,
+  and calculated equity.
+- Bonds, savings products, pensions, private equity, commodities, precious metals,
+  collectibles, and other custom investments.
+- Crypto wallets, staking, Earn products, and later DeFi integrations.
 
-## 7. Data Model (guidance, Codex can refine)
+### Future Platform Phases
 
-Suggested core entities:
+- Multiple named portfolios per user, followed by permissioned household aggregation.
+- Country-pluggable European tax modules after transaction and tax-lot data is mature.
+- Mobile clients consuming the same versioned backend.
+- Regulated EU account-aggregation providers and additional broker connectors.
+- Cloud deployment and dedicated background workers when a single Raspberry Pi process
+  is no longer sufficient.
 
-- **User**: id, username, password_hash, is_admin (bool), created_at
-- **UserProfile**: user_id, goals (text or enum), risk_tolerance, time_horizon
-- **BrokerConnection**: id, user_id, broker (`trading212` | `etoro` | `binance` |
-  `xtb_manual`), encrypted_credentials (JSON blob, structure varies per source), status
-  (active/error), last_synced_at
-- **Position** (current snapshot of holdings — Trading212 and Binance): id,
-  broker_connection_id, ticker/instrument_id, asset_type (stock/crypto/etf), quantity,
-  avg_price, current_value, currency, updated_at
-- **PortfolioSnapshot** (point-in-time total value — used for eToro monthly values and
-  optionally daily/periodic rollups for other sources, to power trend charts): id,
-  broker_connection_id, snapshot_date, total_value, currency
-- **Transaction** (order/activity history — Trading212, Binance): id,
-  broker_connection_id, external_id, ticker, type (buy/sell/dividend/etc.), quantity,
-  price, value, currency, executed_at
-- **NewsItem**: id, ticker, headline, source, published_at, url, related_user_ids (or a
-  join table linking news to users currently holding that ticker)
-- **AIRecommendation**: id, user_id, generated_at, content, model_used
-- **ChatMessage**: id, user_id, role (user/assistant), content, created_at
+## 3. Explicit Non-Goals
 
-This structure supports per-user, per-source isolation and keeps XTB's future manual
-entry as just another `BrokerConnection` with `broker = xtb_manual`.
+The following are intentionally outside the initial stock/ETF/crypto product:
 
-## 8. Security Requirements
+- Placing, changing, or cancelling trades, orders, transfers, or withdrawals.
+- Automatic portfolio rebalancing or autonomous investment decisions.
+- Intraday or streaming market-data guarantees; launch freshness is 1–2 hours.
+- Everyday banking, expense tracking, household budgeting, or bill payment.
+- Jurisdiction-specific tax calculations or claims that reports are tax-ready.
+- Multiple portfolios, household sharing, or public/social portfolio sharing in the POC.
+- Automatic real-estate appraisal or alternative-asset pricing before Phase 4.
+- Native mobile applications in the initial web release.
+- Treating AI output as financial advice or as a source of calculated portfolio values.
 
-- Broker/exchange API keys/secrets **must be encrypted at rest** (e.g. AES-256-GCM via a
-  server-side encryption key stored in an environment variable / secrets file, not in
-  the DB).
-- Binance keys specifically: app must guide users to create **read-only** keys during
-  the connect flow (trading/withdrawal permissions should never be requested or needed).
-- Never log API keys, secrets, or full OpenAI prompts/responses containing sensitive
-  portfolio data beyond what's needed for debugging (redact where possible).
-- Settings page where each user enters/updates/deletes their own API keys — keys are
-  never displayed again in full after saving (mask them, e.g. `••••1234`).
-- All broker/exchange/AI API calls happen server-side only — the frontend never talks
-  directly to Trading212/eToro/Binance/OpenAI, and never sees raw secrets after initial
-  entry.
+## 4. Users, Authentication, and Tenancy
 
-## 9. Dashboard & Visualizations
+### 4.1 Account Model
 
-Per-user dashboard showing a combined view across all connected sources:
+- Public self-service registration is supported and enabled by default through
+  `PUBLIC_SIGNUP_ENABLED=true`.
+- Registration requires username, email, password, password confirmation, and successful
+  single-use email verification before login.
+- Verification links expire, resending invalidates earlier unused links, and only token
+  digests are persisted.
+- Admins can list users and create accounts directly. Admin-created accounts remain a
+  supported operational path, not the primary signup flow.
+- Each POC user has one implicit consolidated portfolio containing all their connections
+  and manual data.
 
-- **Total portfolio value over time** (line chart, combining all connected sources)
-- **Per-source breakdown** (Trading212 vs eToro vs Binance value, stacked area or split view)
-- **Asset allocation** (pie/donut chart by instrument/asset class — stocks vs crypto vs
-  ETFs — and by individual holding)
-- **Trends**: value change over configurable time ranges (1M/3M/6M/1Y/all), % change,
-  best/worst performing holdings
-- **Comparisons**: portfolio performance vs a benchmark (e.g. S&P 500 / MSCI World) if a
-  free market-data source for the benchmark is available; per-source comparison
-  (which broker/exchange is performing best)
-- **Recent activity feed** (latest buys/sells/dividends across Trading212 and Binance)
-- **Monthly snapshot trend for eToro** (bar or line chart of month-end values)
-- **News section** (Section 6.4) and **AI recommendations panel** (Section 6.3),
-  surfaced on or near the main dashboard
-- **AI chat** accessible from the dashboard (Section 6.5)
-- Currency handling: **base/display currency is EUR** for all combined totals and charts.
-  Convert any non-EUR values returned by a source (Codex: use a simple FX rate
-  source, cached daily — e.g. ECB reference rates or a free FX API).
+### 4.2 Authentication Security
 
-## 10. Tech Stack
+- Passwords use Argon2 or an equivalently strong adaptive hash and are never stored in
+  plaintext.
+- Authentication uses random opaque session tokens in secure, HTTP-only, SameSite
+  cookies. Only token digests are stored.
+- Five failed attempts trigger a 15-minute account lockout.
+- Public release additionally requires IP- and username-aware rate limiting, secure
+  password reset, session revocation, and optional TOTP two-factor authentication.
+- Production uses HTTPS through Cloudflare Tunnel and `COOKIE_SECURE=true`.
 
-- **Backend**: Python, FastAPI
-- **Database**: PostgreSQL
-- **Frontend**: React (Vite SPA), talking to FastAPI via REST API — **web only for v1**;
-  built with an eye toward an eventual React Native mobile app sharing the same backend.
-- **AI**: OpenAI API (chat/completions) for recommendations and Q&A
-- **News**: Finnhub (or equivalent, see Section 6.4)
-- **Scheduling**: background job runner for periodic Trading212/Binance sync, monthly
-  eToro snapshot, daily news fetch (APScheduler is a simple fit given the small scale;
-  Codex can propose alternatives if there's a good reason)
-- **Deployment**: Docker Compose on Patrik's Raspberry Pi home server, exposed via the
-  existing Cloudflare Tunnel setup (same pattern as patrikpalencar.uk /
-  cloud.patrikpalencar.uk)
+### 4.3 Tenant Isolation
 
-## 11. Confirmed Decisions
+- Every connection, position, transaction, snapshot, profile, import, news association,
+  recommendation, conversation, alert, and manual asset belongs to a user.
+- Repository and service operations must include the authenticated `user_id`; knowing an
+  object UUID must never grant access to another user's data.
+- Cross-user views are prohibited until explicit household permissions are implemented.
+- Admin privileges do not implicitly expose portfolio holdings or broker credentials.
 
-- Web app first; mobile is a later phase, not part of this build.
-- Sources for v1: Trading212, eToro, Binance. XTB excluded from v1 (manual entry planned
-  for v2).
-- User accounts are created via a small admin UI (Patrik as admin), not public signup.
-- Base/display currency: EUR.
-- Trading212: live environment (real account data).
-- Historical Trading212/Binance charting: the app builds its own value-over-time series
-  by taking periodic snapshots going forward from when a user connects their account.
-  **Chart history starts from the connection date, not retroactively** — these APIs
-  don't expose a ready-made historical portfolio-value series, only current positions
-  and transaction history.
-- eToro: all family members have verified eToro accounts, so the integration is built
-  as available to every user (not Patrik-only).
-- AI provider: OpenAI API, for both recommendations and the Q&A chatbot.
-- News provider: not finalized — Finnhub recommended (free tier, has an earnings
-  calendar), Alpha Vantage as a fallback option. Codex to confirm availability/limits and
-  document the final choice.
+## 5. Portfolio Domain and Data Quality
 
-## 12. Open Items to Revisit
+### 5.1 Core Entities
 
-- Whether OpenAI usage should be a shared app-level API key (simplest) or per-user
-  (more isolated, more setup friction) — assumed shared/app-level for v1; flag if you
-  want it changed. Worth revisiting once the user base grows, since a shared key means
-  shared usage/cost.
-- Benchmark comparison (S&P 500 / MSCI World) depends on finding a suitable free
-  market-data source — confirm during build if this needs a specific API or should be
-  cut from v1.
-- Raspberry Pi hosting is fine for the initial user count, but if the user base grows
-  meaningfully, Postgres/compute may need to move to a proper cloud host — the connector/
-  layered-architecture approach in Section 2 is meant to make that a deployment change,
-  not a rewrite.
-- Public/self-service signup (vs. today's admin-invite-only model) — not needed for v1,
-  but worth flagging as a likely v2 ask if the app is opened up beyond invited users.
+- **User / UserProfile:** identity, goals, risk tolerance, and time horizon.
+- **BrokerConnection:** user, provider, account label, encrypted credentials, connection
+  status, freshness, and last safe error. Multiple connections to one provider must be
+  supported in Phase 1.
+- **Instrument / InstrumentAlias:** canonical security or asset plus provider-specific
+  identifiers, symbols, names, asset class, currency, exchange, sector, and geography.
+- **Position:** connection, instrument, quantity, broker-reported cost/value, original
+  currency/value, EUR value, and valuation timestamp.
+- **Transaction:** source account, external ID, type, quantity, price, gross/net value,
+  fees, tax withheld, original currency, execution time, and import provenance.
+- **PortfolioSnapshot:** source and consolidated end-of-day values in original currency
+  and EUR.
+- **FXRate / MarketPrice:** provider, instrument or currency pair, date/time, value, and
+  provenance.
+- **SyncRun / ImportJob / DataQualityIssue:** observable ingestion state, counts,
+  warnings, failures, and reconciliation results.
+- **NewsItem / Alert / AIRecommendation / Conversation / ChatMessage:** user-scoped
+  information and intelligence features.
+- **ManualAsset / AssetValuation / AssetCashFlow / Liability:** Phase 4 diversified-asset
+  model.
+
+### 5.2 Data Invariants
+
+- Store decimals for financial values; never use binary floating-point arithmetic.
+- Retain source-native identifiers and values alongside normalized values.
+- All normalized values include valuation time, FX-rate date, source, and
+  stale/estimated flags.
+- Synchronization and imports are idempotent and cannot duplicate transactions.
+- Partial imports preserve the last known good portfolio and surface an actionable
+  warning rather than silently replacing it with incomplete data.
+- Daily historical valuations begin when a connection is first synced unless reliable
+  transactions and market data allow an explicitly identified backfill.
+- Deleted connections remove imported data according to the documented retention policy.
+
+## 6. Data Sources and Synchronization
+
+### 6.1 Common Connector Contract
+
+Each provider is isolated behind a connector supporting the applicable subset of:
+
+- credential validation;
+- current positions and cash;
+- transactions and cash flows from a resumable cursor;
+- current/daily portfolio valuation;
+- provider capability and permission reporting;
+- rate-limit and retry metadata.
+
+All external calls run server-side. Connectors return normalized domain objects and safe
+errors; provider-specific payloads do not leak into route handlers or the frontend.
+
+### 6.2 Trading 212
+
+- Live Invest/Stocks ISA API with HTTP Basic authentication using API key and secret.
+- Import current positions, cash, orders/fills, dividends, deposits, withdrawals, and
+  fees exposed by the account.
+- Existing implementation is the baseline but must add history pagination/backfill,
+  resumable cursors, rate-limit-aware retry, canonical instruments, and non-EUR support.
+- Keys must be read-only and include the history permissions needed for activity import.
+
+### 6.3 Binance
+
+- Official Binance Spot REST API using a signed read-only API key.
+- Import non-zero Spot balances, held-asset prices, trades, deposits, withdrawals, fees,
+  and supported income events.
+- Resolve assets through EUR or safe intermediate quote pairs and clearly mark assets
+  that cannot be priced.
+- Users must be instructed to enable Reading only and disable trading, futures, margin,
+  and withdrawals.
+
+### 6.4 eToro
+
+- Official public API with `x-api-key`, `x-user-key`, and unique `x-request-id` headers.
+- Users create a Real-environment key with read permission only.
+- Import current positions, cash, portfolio value, and P&L where exposed by the API.
+- Refresh with other live connections and retain a reliable last-trading-day snapshot
+  for each month.
+
+### 6.5 CSV and Manual Data
+
+- CSV is a first-class fallback for unsupported brokers, not an emergency-only tool.
+- Trading 212 Crypto uses its official History CSV export because Trading 212's Public API
+  currently supports only Invest and Stocks ISA accounts. Imports reconstruct crypto
+  holdings, deduplicate overlapping files, retain transaction provenance, and label
+  last-trade-price valuation fallbacks.
+- Imports provide reusable templates, column mapping, validation preview, duplicate
+  detection, atomic commit, and a downloadable error report.
+- Manual holdings and transactions support unsupported stock/ETF/crypto accounts.
+- XTB remains API-excluded unless an official supported API returns; it is covered by
+  CSV/manual workflows.
+
+### 6.6 Synchronization Policy
+
+- `PORTFOLIO_SYNC_MINUTES` is configurable, defaults to `120`, and should be kept between
+  `60` and `120` for the initial deployment unless provider limits require a slower rate.
+- Users can request a manual refresh, subject to per-provider rate limits and job
+  deduplication.
+- Current positions are updated on each successful sync; consolidated historical charts
+  retain one end-of-day valuation.
+- Scheduler jobs use single-instance/coalescing behavior and expose run status.
+- Rate limits, transient errors, invalid credentials, missing permissions, and provider
+  outages produce distinct user-facing states.
+
+## 7. Currency, Market Data, and Benchmarks
+
+- EUR is the initial base/display currency; each source value also retains its original
+  currency.
+- ECB working-day reference rates are the default FX source and are cached by date.
+- Broker-reported values/prices are authoritative for connected current positions.
+- Market-data access is provider-abstracted and free-first; paid providers may be added
+  later without changing portfolio services.
+- Finnhub is the initial news and financial-calendar provider and remains feature-flagged.
+- Alpha Vantage daily series may provide cached investable ETF benchmark proxies. The
+  benchmark feature remains disabled when data is unavailable or provider terms/limits
+  are unsuitable.
+- Benchmarks compare return, not raw account value, and show the selected proxy,
+  currency, period, and data timestamp.
+
+## 8. Dashboard and Analytics Requirements
+
+### 8.1 Dashboard
+
+- Total current portfolio value in EUR with last-updated and data-quality status.
+- Change and return for the selected period, with net contributions distinguished from
+  investment performance.
+- Portfolio-history chart with 1M/3M/6M/1Y/all ranges.
+- Allocation by source and asset class, followed by currency, sector, geography, and
+  individual holding.
+- Best/worst holdings, recent activity, income, upcoming events, news, and alerts.
+- Responsive, keyboard-accessible loading, empty, stale, partial, and error states.
+
+### 8.2 Holdings and Activity
+
+- Holdings table supports search, sorting, grouping, and drill-down.
+- Holding detail shows accounts, quantity, cost, value, gain/loss, income, transactions,
+  prices, and valuation freshness.
+- Unified activity supports date, source, instrument, and transaction-type filters.
+- Users may attach categories, tags, notes, and target allocation without overwriting
+  provider data.
+
+### 8.3 Performance and Risk
+
+- Provide net invested capital, absolute gain, total return, TWR, and MWR/XIRR.
+- Attribute returns to capital gain, dividends/income, fees, and currency movement where
+  data supports it.
+- Provide realized/unrealized performance without claiming tax treatment.
+- Provide contribution to return, volatility, drawdown, concentration, and allocation
+  drift with calculation definitions.
+- ETF look-through is optional when reliable holdings metadata is available and must
+  state its source/as-of date.
+
+## 9. News, Alerts, and AI
+
+### 9.1 News and Events
+
+- Daily scheduled ingestion fetches relevant news and earnings/dividend events for
+  currently held instruments.
+- Items are deduplicated, linked only to relevant users, and retain headline, source,
+  URL, ticker, and publication time.
+- Provider failures do not block the core portfolio experience.
+
+### 9.2 AI Requirements
+
+- OpenAI is the initial provider, using one server-side application key and an
+  environment-configured model.
+- Recommendations and chat are disabled safely when AI is not configured.
+- Model context is produced by a versioned portfolio-context service using the current
+  user's calculated holdings, analytics, recent activity, goals, and risk profile.
+- Responses distinguish sourced facts, deterministic calculations, and generated
+  explanation. They include an as-of time and informational-only disclaimer.
+- Recommendations are cached; chat history is persisted per user and can be deleted.
+- Do not log full prompts/responses containing sensitive portfolio data by default.
+
+## 10. Security, Privacy, and Operations
+
+- Broker credentials are encrypted with AES-256-GCM using a server-side key outside the
+  database and are never returned after creation except as a masked hint.
+- Secret values, session tokens, verification tokens, broker payload credentials, and
+  sensitive AI context must be redacted from logs.
+- Public release requires authentication throttling, password recovery, optional 2FA,
+  privacy/consent records, account export, and permanent account deletion.
+- PostgreSQL backups and restore procedures must be automated and tested.
+- Scheduled jobs expose structured logs, metrics, last success, failure count, and safe
+  admin-visible diagnostics.
+- Dependency auditing, backend tests, frontend build/lint, migration tests, and critical
+  end-to-end flows run in CI.
+- Production secrets use environment variables or managed secrets; `.env` is restricted
+  to the deployment user and never committed.
+
+## 11. Architecture and Deployment
+
+- **Backend:** Python, FastAPI, SQLAlchemy async, Pydantic, and versioned REST APIs.
+- **Database:** PostgreSQL with Alembic migrations.
+- **Frontend:** React/Vite SPA; mobile later reuses the REST backend.
+- **Scheduling:** APScheduler is acceptable for one API process. Replicated deployment
+  requires a dedicated/distributed worker so jobs execute once.
+- **Deployment:** Docker Compose on Raspberry Pi behind Cloudflare Tunnel for the initial
+  release; no filesystem or single-host assumptions in business logic.
+- **Configuration:** environment-driven feature flags, provider keys, URLs, email,
+  security settings, and scheduling intervals.
+- **Testing:** external providers are mockable; route handlers remain thin; services and
+  calculations are independently testable.
+
+## 12. Acceptance Criteria
+
+- A new public user can register, receive and complete email verification, log in, and
+  access only their own empty portfolio.
+- A user can connect or import a supported account without exposing secrets to the
+  frontend or logs.
+- After synchronization, source totals reconcile or the application presents a concrete
+  data-quality warning explaining the difference.
+- Dashboard values show source, currency, EUR conversion, valuation time, and freshness.
+- Repeated synchronization/import produces no duplicate transactions.
+- External cash flows are separated from investment return in performance reporting.
+- Provider, news, benchmark, or AI failure cannot prevent access to the last known good
+  portfolio.
+- Account deletion and connection deletion do not leave accessible user-owned data.
+- Tenant-isolation, security, calculation, migration, connector, and browser acceptance
+  tests cover the critical paths before public production exposure.
+
+## 13. Implementation Status Matrix
+
+Status meanings:
+
+- **Complete:** implemented and usable for its currently defined scope.
+- **Partial:** meaningful implementation exists, but the requirements above are not met.
+- **Planned:** represented only by scaffolding or not implemented.
+- **Future:** intentionally belongs to a later product phase.
+
+| Capability | Status | Current evidence / remaining work |
+| --- | --- | --- |
+| Layered/versioned backend, React shell, PostgreSQL, migrations, Docker | Complete | Core structure, `/api/v1`, Alembic, and Compose exist. |
+| Tenant-scoped repositories and protected routes | Complete | User-scoped connections/portfolio queries and admin dependency exist; broader endpoint coverage needs regression tests as features grow. |
+| Public registration and email verification | Complete | Register, verify, resend, and UI flows exist; signup defaults on. |
+| Login sessions, password hashing/change, account lockout | Complete | Opaque cookie sessions, Argon2, password change, and five-attempt lockout exist. |
+| Public-release auth/privacy hardening | Planned | IP throttling, reset flow, optional 2FA, privacy controls, export, and deletion remain. |
+| Admin user management | Complete | Admin can list and create users. |
+| Encrypted broker credentials and setup guides | Complete | AES-256-GCM, masked hints, delete flow, and read-only guidance exist. |
+| Multiple labelled accounts per provider | Planned | Current schema permits only one connection per user/provider. |
+| Trading 212 current positions, cash, recent activity, and snapshot | Partial | Live connector and EUR conversion work; full pagination, cursoring, canonical instruments, and robust rate-limit handling remain. |
+| Binance Spot connector | Partial | Signed read-only authentication, Spot balances, EUR valuation through available market pairs, held-asset trades/fees, snapshots, manual refresh, scheduling, and mocked API tests exist. Real-account smoke testing plus deposits, withdrawals, income, sold-out-symbol discovery, and resumable full-history backfill remain. |
+| eToro periodic connector and month-end history | Partial | Public API authentication, aggregate positions/cash/copy value, instrument metadata, closed-trade history, valuations, manual/periodic/month-end sync, and mocked API tests exist. Real-account smoke testing, broader history reconciliation, and exact coverage of all eToro portfolio products remain. |
+| CSV/manual stock, ETF, and crypto data | Partial | Trading 212 Crypto CSV upload, validation, duplicate protection, transaction storage, holdings reconstruction, current-price/fallback valuation, snapshots, and repeat-import UI work. Generic mapping/preview, error downloads, other templates, persisted import jobs, and manual CRUD remain. |
+| Canonical instruments and broker aliases | Complete | Global instruments retain ISIN/symbol identity while provider aliases preserve Trading 212 Invest, Trading 212 Crypto, Binance, and eToro identifiers. Sync/import resolution combines matching securities and crypto across platforms. |
+| Data-quality and reconciliation model | Planned | Canonical matching exists; persisted reconciliation issues, confidence/override workflows, and source-total checks remain. |
+| ECB FX conversion and market-data cache | Partial | Daily ECB rates are fetched, cached for a sync process, and used to preserve source values while aggregating in EUR. Persisted dated rates, historical lookup, and fallback behavior remain. |
+| Scheduled synchronization | Partial | APScheduler refreshes Trading 212, Binance, and eToro every 120 minutes by default and adds an eToro month-end run. Persisted run status, retries/backoff, provider-specific throttling, and distributed-worker safety remain. |
+| Goals, risk tolerance, and time horizon | Complete | Profile API and UI are functional. |
+| Basic portfolio summary | Partial | EUR total, position count, and source allocation work; the full dashboard does not. |
+| Consolidated and per-platform holdings | Partial | A searchable responsive holdings page groups stocks/ETFs, crypto, cash, and other assets; it supports combined and broker-specific views with expandable original-currency/source detail. Sorting controls, gain/loss, activity, and dedicated instrument routes remain. |
+| Scalable source-management UI | Complete | Connected sources use compact management rows; a searchable/filterable directory separates live API connections from file imports and scales without one oversized setup card per provider. |
+| Transactions, daily history, performance, and risk analytics | Planned | Core tables exist; APIs, calculations, charts, and pages do not. |
+| News and financial calendar | Planned | Finnhub interface and scheduler placeholder exist. |
+| AI recommendations and portfolio chat | Planned | Tables, provider shell, feature flags, and placeholder UI exist. |
+| Raspberry Pi deployment | Partial | Compose/nginx/health setup exists; production backup, monitoring, TLS-edge configuration validation, and restore testing remain. |
+| Generic assets and real estate | Future | Phase 4 after the stock/ETF/crypto data foundation. |
+| Multiple portfolios and household sharing | Future | POC intentionally uses one implicit portfolio per user. |
+| European tax modules | Future | Explicitly excluded until transaction/tax-lot data is mature. |
+| Native mobile clients | Future | Web first; backend remains reusable. |

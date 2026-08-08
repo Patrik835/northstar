@@ -1,13 +1,26 @@
-# Northstar investment dashboard
+# Northstar Investment OS
 
-A self-hosted, multi-user web application that aggregates Trading 212, eToro, and
-Binance portfolios. This repository currently contains the v1 application skeleton:
-the system boundaries, data model, authentication flow, connector contracts, REST API,
-React UI shell, migrations, tests, and Raspberry Pi-friendly containers.
+Northstar is a self-hosted, multi-user investment operating system for EU investors.
+It starts by consolidating stocks, ETFs, cash, and crypto across Trading 212, eToro,
+Binance, CSV imports, and manual entries. The longer-term product expands to real
+estate and other diversified investments while keeping portfolio data private,
+traceable, and understandable.
 
-Live broker synchronization, FX conversion, news fetching, and OpenAI calls are
-deliberately represented by interfaces/placeholders and are the next implementation
-slices. No placeholder calls a real account.
+The repository currently contains the application foundation and functional read-only
+connectors for Trading 212, Binance Spot, and eToro. Public registration with email
+verification, authentication, encrypted broker credentials, user profiles, scheduled
+synchronization, manual refresh, ECB currency conversion, and the basic aggregated
+dashboard are implemented. Canonical instruments now combine equivalent holdings across
+brokers, while a searchable holdings view exposes consolidated stock/ETF and crypto
+positions plus each platform's original detail. The Binance and eToro connectors have
+automated contract coverage but still need smoke testing with real read-only accounts.
+Trading 212 Crypto is supported through repeatable, deduplicated CSV imports because its
+separate Crypto account has no Public API. Generic CSV/manual imports, advanced analytics,
+news, and AI remain planned or scaffolded.
+
+See [PROJECT_REQUIREMENTS.md](PROJECT_REQUIREMENTS.md) for the product contract and
+[NORTHSTAR_ROADMAP.md](NORTHSTAR_ROADMAP.md) for the ticket-sized implementation
+roadmap.
 
 ## Structure
 
@@ -37,10 +50,15 @@ Requirements: Docker with Compose.
 4. Run `make bootstrap` once to create the initial admin.
 5. Open `http://localhost:8080`.
 
-Development verification emails are captured by Mailpit. Open
-`http://localhost:8025` to view the inbox and follow verification links. Production
-should replace the `SMTP_*` values with a real SMTP provider and set `PUBLIC_WEB_URL`
-to the public HTTPS address.
+Public signup is enabled by default. Create an account from the registration page, then
+open `http://localhost:8025` to retrieve the development verification email from
+Mailpit. The bootstrap admin remains useful for administration and can also create
+accounts directly. Set `PUBLIC_SIGNUP_ENABLED=false` to run an invite/admin-created-only
+deployment.
+
+Production must replace the `SMTP_*` values with a real SMTP provider and set
+`PUBLIC_WEB_URL` to the public HTTPS address so verification links point to the correct
+host.
 
 Generate the two required keys:
 
@@ -54,9 +72,73 @@ The first value is `APP_SECRET_KEY`; the second is
 deployment account, use a strong `POSTGRES_PASSWORD`, set `COOKIE_SECURE=true`, and
 route the Cloudflare Tunnel to port 8080.
 
-## Development
+## Runtime configuration
 
-Backend:
+The main launch defaults are:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `PUBLIC_SIGNUP_ENABLED` | `true` | Enables self-service registration; verified email is required before login. |
+| `PUBLIC_WEB_URL` | `http://localhost:8080` | Base URL used in verification links; use the public HTTPS URL in production. |
+| `EMAIL_VERIFICATION_TTL_HOURS` | `24` | Lifetime of a single-use verification link. |
+| `PORTFOLIO_SYNC_MINUTES` | `120` | Scheduled broker refresh interval. Keep it between 60 and 120 minutes for the initial deployment unless provider limits require a slower cadence. |
+| `SCHEDULER_ENABLED` | `true` | Runs portfolio and enabled content jobs in the API process. Disable it in tests or secondary API replicas. |
+
+The 1–2 hour interval is a freshness target, not a real-time market-data promise. Trading
+212, Binance, and eToro all use the same scheduled/manual refresh workflow. Current
+values retain their source currency, are converted to EUR for aggregation, and expose
+their last successful synchronization time.
+
+## Trading 212 Crypto imports
+
+Trading 212's Public API supports Invest and Stocks ISA accounts, not its separate Crypto
+account. Northstar therefore presents Trading 212 Crypto as a CSV import source:
+
+1. In the Trading 212 Crypto account, open **Menu → History → Export**.
+2. Include completed Buy, Sell, Deposit, and Withdrawal activity. Use the full available
+   date range for the first import.
+3. In Northstar, open **Connections**, find **Trading 212 Crypto**, and upload the CSV.
+4. Upload later or overlapping exports through **Import newer CSV**; stable IDs and row
+   fingerprints prevent duplicates.
+
+The import validates before commit, reconstructs crypto quantities and moving-average EUR
+cost, and values supported assets with public Binance Spot prices. If a live price is not
+available, the UI explicitly reports that the last imported trade price was used.
+
+## Development workflows
+
+### Docker Compose (recommended)
+
+The normal development and deployment workflow runs the entire stack in Docker:
+
+```bash
+make up
+```
+
+Docker Compose automatically:
+
+1. starts PostgreSQL;
+2. runs `alembic upgrade head` in the one-off `migrate` service;
+3. starts Uvicorn in the `api` container; and
+4. serves the React application through nginx on `http://localhost:8080`.
+
+You do not need to run Alembic or Uvicorn manually when using this workflow. Rebuild
+the containers after source or dependency changes:
+
+```bash
+docker compose up --build -d
+```
+
+Use `make logs` to follow the API and web logs and `make down` to stop the stack.
+
+### Without Docker (optional)
+
+This workflow is only for developers who intentionally want to run the backend and
+frontend processes directly on the host. It requires a reachable PostgreSQL instance
+and a `DATABASE_URL` in `.env` that is valid from the host machine (typically using
+`localhost`, not the Docker hostname `db`).
+
+Run the backend:
 
 ```bash
 cd backend
@@ -68,7 +150,7 @@ alembic upgrade head
 uvicorn app.main:app --reload
 ```
 
-Frontend:
+In another terminal, run the frontend:
 
 ```bash
 cd frontend
@@ -76,8 +158,9 @@ npm install
 npm run dev
 ```
 
-The Vite server proxies `/api` to `http://localhost:8000`. API documentation is at
-`/docs` on the backend in development.
+The Vite server proxies `/api` to `http://localhost:8000`. In this host-based workflow,
+the frontend is available on Vite's development URL and backend API documentation is
+available at `http://localhost:8000/docs`.
 
 ## Security decisions
 
@@ -93,6 +176,8 @@ The Vite server proxies `/api` to `http://localhost:8000`. API documentation is 
 - Secrets are accepted only by the backend and returned only as masked hints.
 - Binance is modeled as read-only and its connection UI explicitly tells users to
   disable trading, futures, and withdrawals.
+- Trading 212 Crypto imports never request Trading 212 login credentials. Uploaded files
+  are parsed in memory and normalized records are stored under the authenticated user.
 - Every repository query taking portfolio/connection data includes the authenticated
   `user_id`. Admin APIs are separately guarded.
 
@@ -103,13 +188,19 @@ The Vite server proxies `/api` to `http://localhost:8000`. API documentation is 
   Free-tier limits should be rechecked when that implementation begins.
 - OpenAI uses one app-level key and is disabled by default. Recommendation/chat output
   is designed to be cached per user and always carries a financial-advice disclaimer.
-- A benchmark provider is intentionally not selected. `BENCHMARKS_ENABLED` stays false
-  until a stable free source is chosen.
+- Benchmarks remain disabled by default. The requirements propose cached Alpha Vantage
+  daily ETF series as investable benchmark proxies, behind a replaceable provider
+  interface and subject to rechecking current terms and limits before implementation.
 - APScheduler is appropriate for one Raspberry Pi API process. If the API is later
   replicated, move jobs to a dedicated worker or use a distributed scheduler so they
   do not execute once per replica.
-- Trading 212 and Binance history starts with the first successful sync. eToro uses
-  monthly snapshots. The `xtb_manual` enum is reserved in the model for v2, but it is
-  not exposed by v1 routes.
-
-See [PROJECT_REQUIREMENTS.md](PROJECT_REQUIREMENTS.md) for the full product scope.
+- Trading 212 history currently starts with the first successful sync. Binance currently
+  imports trades and fees for assets held at synchronization time; deposits, withdrawals,
+  income events, sold-out symbols, and resumable full-history backfill remain roadmap
+  work. eToro imports the documented aggregate portfolio and closed-trade history. All
+  three live connectors refresh every 1–2 hours, and eToro receives an additional
+  month-end synchronization.
+- ECB daily reference rates are fetched and cached in each synchronization process for
+  EUR aggregation. Persisted dated FX history and fallback behavior remain roadmap work.
+- XTB remains unsupported as a live API source. It will use the planned CSV/manual
+  fallback unless an official supported API becomes available.
