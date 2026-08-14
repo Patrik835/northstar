@@ -1,4 +1,5 @@
 import hashlib
+import re
 import time
 from datetime import date, datetime, timezone
 from decimal import Decimal
@@ -290,10 +291,10 @@ def _asset_type_from_metadata(value: Any) -> AssetType:
 
 
 def _canonical_symbol(ticker: str) -> str:
-    parts = ticker.upper().split("_")
-    if parts and parts[-1] == "EQ":
+    parts = ticker.split("_")
+    if parts and parts[-1].upper() == "EQ":
         parts.pop()
-    if len(parts) > 1 and parts[-1] in {
+    has_explicit_market = len(parts) > 1 and parts[-1].upper() in {
         "AU",
         "CA",
         "CH",
@@ -304,9 +305,16 @@ def _canonical_symbol(ticker: str) -> str:
         "NL",
         "UK",
         "US",
-    }:
+    }
+    if has_explicit_market:
         parts.pop()
-    return "_".join(parts) or ticker.upper()
+    elif len(parts) == 1 and re.search(r"[a-z]$", parts[0]):
+        # Trading 212 appends a lowercase exchange marker when the market is not
+        # represented by a separate segment (for example ASMLa_EQ in Amsterdam).
+        # Preserve actual share-class letters on symbols such as BRKb_US_EQ,
+        # which include an explicit market segment.
+        parts[0] = parts[0][:-1]
+    return ("_".join(parts) or ticker).upper()
 
 
 def _timestamp(value: str) -> datetime:

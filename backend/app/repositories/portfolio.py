@@ -8,8 +8,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.broker import BrokerConnection
 from app.models.enums import AssetType, Broker
-from app.models.instrument import Instrument
-from app.models.portfolio import Position
+from app.models.instrument import Instrument, InstrumentAlias
+from app.models.portfolio import (
+    HoldingMetadata,
+    PortfolioSnapshot,
+    Position,
+    Transaction,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,6 +36,21 @@ class ConnectionQualityRow:
     reconciliation_difference_percent: Decimal | None
     reconciliation_checked_at: datetime | None
     reconciliation_warning: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class TransactionRow:
+    transaction: Transaction
+    broker: Broker
+    connection_id: uuid.UUID
+    instrument: Instrument | None
+
+
+@dataclass(frozen=True, slots=True)
+class SnapshotRow:
+    snapshot: PortfolioSnapshot
+    broker: Broker
+    connection_id: uuid.UUID
 
 
 class PortfolioRepository:
@@ -115,3 +135,82 @@ class PortfolioRepository:
             )
             for connection in rows.scalars()
         ]
+
+    async def transaction_rows(self, user_id: uuid.UUID) -> list[TransactionRow]:
+        rows = list(
+            (
+                await self.db.execute(
+                    select(Transaction, BrokerConnection)
+                    .join(
+                        BrokerConnection,
+                        Transaction.broker_connection_id == BrokerConnection.id,
+                    )
+                    .where(BrokerConnection.user_id == user_id)
+                    .order_by(Transaction.executed_at.asc())
+                )
+            ).all()
+        )
+        aliases = list(
+            (
+                await self.db.execute(
+                    select(InstrumentAlias, Instrument)
+                    .join(Instrument, InstrumentAlias.instrument_id == Instrument.id)
+                )
+            ).all()
+        )
+        alias_map = {
+            (alias.broker, alias.provider_symbol.casefold()): instrument
+            for alias, instrument in aliases
+        }
+        return [
+            TransactionRow(
+                transaction=transaction,
+                broker=connection.broker,
+                connection_id=connection.id,
+                instrument=alias_map.get(
+                    (connection.broker, transaction.ticker.casefold())
+                ),
+            )
+            for transaction, connection in rows
+        ]
+
+    async def snapshot_rows(self, user_id: uuid.UUID) -> list[SnapshotRow]:
+        rows = await self.db.execute(
+            select(PortfolioSnapshot, BrokerConnection)
+            .join(
+                BrokerConnection,
+                PortfolioSnapshot.broker_connection_id == BrokerConnection.id,
+            )
+            .where(BrokerConnection.user_id == user_id)
+            .order_by(PortfolioSnapshot.snapshot_date.asc())
+        )
+        return [
+            SnapshotRow(
+                snapshot=snapshot,
+                broker=connection.broker,
+                connection_id=connection.id,
+            )
+            for snapshot, connection in rows
+        ]
+
+    async def holding_metadata(self, user_id: uuid.UUID) -> dict[str, HoldingMetadata]:
+        rows = await self.db.scalars(
+            select(HoldingMetadata).where(HoldingMetadata.user_id == user_id)
+        )
+        return {row.holding_key: row for row in rows}
+
+    async def get_holding_metadata(
+        self, user_id: uuid.UUID, holding_key: str
+    ) -> HoldingMetadata | None:
+        return await self.db.scalar(
+            select(HoldingMetadata).where(
+                HoldingMetadata.user_id == user_id,
+                HoldingMetadata.holding_key == holding_key,
+            )
+        )
+
+    async def save_holding_metadata(self, metadata: HoldingMetadata) -> HoldingMetadata:
+        self.db.add(metadata)
+        await self.db.commit()
+        await self.db.refresh(metadata)
+        return metadata

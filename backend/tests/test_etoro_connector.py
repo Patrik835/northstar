@@ -52,7 +52,14 @@ def _transport(invalid_credentials: bool = False) -> httpx.MockTransport:
                     "clientPortfolio": {
                         "positions": [
                             {
+                                "positionID": 88,
                                 "instrumentID": 1001,
+                                "openDateTime": "2026-07-20T09:00:00Z",
+                                "openRate": 100,
+                                "isBuy": True,
+                                "amount": 500,
+                                "initialAmountInDollars": 500,
+                                "initialUnits": 5,
                                 "mirrorID": 0,
                                 "unrealizedPnL": {"pnL": 55},
                             },
@@ -110,11 +117,13 @@ def _transport(invalid_credentials: bool = False) -> httpx.MockTransport:
                         "positionId": 99,
                         "instrumentId": 1001,
                         "isBuy": True,
+                        "openRate": 100,
+                        "openTimestamp": "2026-07-15T10:00:00Z",
                         "closeRate": 120,
                         "closeTimestamp": "2026-08-01T10:00:00Z",
                         "investment": 500,
                         "netProfit": 100,
-                        "fees": 2,
+                        "fees": -2,
                         "units": 5,
                     }
                 ],
@@ -145,9 +154,17 @@ async def test_etoro_maps_current_portfolio_and_history() -> None:
     assert positions[1].reported_pnl is None
     assert positions[2].instrument_id == "ETORO:COPY:77"
     assert positions[2].reported_pnl == Decimal("25")
-    assert activity[0].transaction_type is TransactionType.SELL
-    assert activity[0].value == Decimal("600")
-    assert activity[1].transaction_type is TransactionType.FEE
+    assert [item.transaction_type for item in activity] == [
+        TransactionType.BUY,
+        TransactionType.BUY,
+        TransactionType.SELL,
+        TransactionType.FEE,
+    ]
+    assert activity[0].external_id.startswith("open-position:99:")
+    assert activity[0].value == Decimal("500")
+    assert activity[1].external_id.startswith("open-position:88:")
+    assert activity[2].value == Decimal("600")
+    assert activity[3].value == Decimal("2")
     assert snapshot.total_value == Decimal("850")
     assert snapshot.independent_total is True
     assert snapshot.currency == "USD"

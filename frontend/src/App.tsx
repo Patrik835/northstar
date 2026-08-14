@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { AdminPage } from "./features/admin/AdminPage";
+import { ActivityPage } from "./features/activity/ActivityPage";
 import { AuthProvider } from "./features/auth/AuthContext";
 import { LoginPage } from "./features/auth/LoginPage";
 import { ProtectedRoute } from "./features/auth/ProtectedRoute";
@@ -17,6 +18,7 @@ import { RouterProvider, useRouter } from "./routing/Router";
 const pages: Record<string, ReactNode> = {
   "/": <DashboardPage />,
   "/holdings": <HoldingsPage />,
+  "/activity": <ActivityPage />,
   "/connections": <ConnectionsPage />,
   "/assistant": <ChatPage />,
   "/profile": <ProfilePage />,

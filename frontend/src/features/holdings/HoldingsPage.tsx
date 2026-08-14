@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../../api/client";
 import type {
+  ActivityResponse,
   AssetType,
   Broker,
   Holding,
@@ -87,25 +88,45 @@ type PnlSummary = {
   percentage: number | null;
   sourceCount: number;
   totalSources: number;
+  calculatedCount: number;
+  hasPartialCoverage: boolean;
 };
 
+type SourcePnl = {
+  valueEur: number;
+  kind: "calculated" | "reported";
+};
+
+function preferredSourcePnl(source: HoldingSource): SourcePnl | null {
+  if (source.performance.open_pnl_eur === null) return null;
+  return {
+    valueEur: Number(source.performance.open_pnl_eur),
+    kind: source.performance.open_pnl_source === "calculated" ? "calculated" : "reported",
+  };
+}
+
 function summarizePnl(sources: HoldingSource[]): PnlSummary | null {
-  const reported = sources.filter((source) => source.reported_pnl_eur !== null);
-  if (!reported.length) return null;
-  const value = reported.reduce(
-    (total, source) => total + Number(source.reported_pnl_eur),
+  const available = sources.flatMap((source) => {
+    const pnl = preferredSourcePnl(source);
+    return pnl ? [{ source, pnl }] : [];
+  });
+  if (!available.length) return null;
+  const value = available.reduce(
+    (total, item) => total + item.pnl.valueEur,
     0,
   );
-  const coveredValue = reported.reduce(
-    (total, source) => total + sourceValue(source),
+  const coveredValue = available.reduce(
+    (total, item) => total + sourceValue(item.source),
     0,
   );
   const costBasis = coveredValue - value;
   return {
     value,
     percentage: costBasis > 0 ? (value * 100) / costBasis : null,
-    sourceCount: reported.length,
+    sourceCount: available.length,
     totalSources: sources.length,
+    calculatedCount: available.filter((item) => item.pnl.kind === "calculated").length,
+    hasPartialCoverage: false,
   };
 }
 
@@ -129,13 +150,15 @@ function PnlLine({
   }
   const tone =
     summary.value > 0 ? "positive" : summary.value < 0 ? "negative" : "neutral";
-  const partial = summary.sourceCount < summary.totalSources;
+  const partial = summary.sourceCount < summary.totalSources || summary.hasPartialCoverage;
   return (
     <span
       className={`pnl-summary ${tone}`}
-      title="Broker-reported P/L for sources that provide it"
+      title={summary.calculatedCount
+        ? "Calculated from imported trades; broker-reported P/L is used where trade history is incomplete"
+        : "Broker-reported P/L"}
     >
-      <span>P/L {signedMoney(summary.value)}</span>
+      <span>Open P/L {signedMoney(summary.value)}</span>
       {summary.percentage !== null && <span>{signedPercentage(summary.percentage)}</span>}
       {partial && (
         <em title={`Reported by ${summary.sourceCount} of ${summary.totalSources} sources`}>
@@ -143,6 +166,42 @@ function PnlLine({
         </em>
       )}
     </span>
+  );
+}
+
+function SourcePnlMetric({ source }: { source: HoldingSource }) {
+  const pnl = preferredSourcePnl(source);
+  if (!pnl) {
+    return (
+      <div>
+        <dt>P/L</dt>
+        <dd className="unavailable">Not available</dd>
+      </div>
+    );
+  }
+
+  const costBasis = sourceValue(source) - pnl.valueEur;
+  const pnlPercentage = costBasis > 0 ? (pnl.valueEur * 100) / costBasis : null;
+  const secondary = [
+    pnl.kind === "reported" && source.currency !== "EUR"
+      ? signedMoney(pnl.valueEur)
+      : null,
+    pnlPercentage !== null ? signedPercentage(pnlPercentage) : null,
+  ].filter(Boolean).join(" · ");
+
+  return (
+    <div>
+      <dt>Open P/L</dt>
+      <dd className={`pnl-source-value ${pnl.valueEur >= 0 ? "positive" : "negative"}`}>
+        <span>
+          {pnl.kind === "reported" && source.reported_pnl !== null
+            ? originalMoney(source.reported_pnl, source.currency)
+            : signedMoney(pnl.valueEur)}
+        </span>
+        {secondary && <small>{secondary}</small>}
+        <small>{pnl.kind === "calculated" ? "Calculated from trades" : "Reported by broker"}</small>
+      </dd>
+    </div>
   );
 }
 
@@ -201,6 +260,13 @@ export function HoldingsPage() {
       const totalQuantity = isCompanyGroup
         ? null
         : sources.reduce((total, source) => total + sourceQuantity(source), 0);
+      const calculatedSources = sources.filter(
+        (source) => source.gain_coverage === "complete" && source.calculated_cost_eur !== null,
+      );
+      const calculatedCost = calculatedSources.length
+        ? calculatedSources.reduce(
+          (total, source) => total + Number(source.calculated_cost_eur), 0,
+        ) : null;
       return [
         {
           ...holding,
@@ -218,6 +284,14 @@ export function HoldingsPage() {
           is_stale: staleConnectionIds.size > 0,
           stale_source_count: staleConnectionIds.size,
           has_estimated_value: sources.some((source) => source.is_estimated),
+          calculated_cost_eur: calculatedCost === null ? null : String(calculatedCost),
+          calculated_gain_eur: calculatedCost === null ? null : String(totalValue - calculatedCost),
+          calculated_gain_percentage: calculatedCost
+            ? String(((totalValue - calculatedCost) * 100) / calculatedCost) : null,
+          gain_coverage: calculatedSources.length === sources.length &&
+            sources.every((source) => source.gain_coverage === "complete")
+            ? "complete" as const
+            : calculatedSources.length ? "partial" as const : "unavailable" as const,
         },
       ];
     });
@@ -382,6 +456,7 @@ export function HoldingsPage() {
           <small>{portfolio?.position_count ?? "—"} source positions</small>
         </article>
       </section>
+      {portfolio && <PortfolioPerformanceSummary portfolio={portfolio} />}
 
       <section className="panel holdings-panel" id="holdings-instruments">
         <div className="holdings-toolbar">
@@ -460,7 +535,7 @@ export function HoldingsPage() {
                   aria-pressed={sortKey === "pnl"}
                   onClick={() => changeSort("pnl")}
                 >
-                  P/L {sortKey === "pnl" && (sortDirection === "desc" ? "↓" : "↑")}
+                  Open P/L {sortKey === "pnl" && (sortDirection === "desc" ? "↓" : "↑")}
                 </button>
               </span>
               <span />
@@ -551,7 +626,115 @@ type ScopedHolding = Holding & {
   pnl: PnlSummary | null;
 };
 
+function performanceTone(value: number) {
+  return value > 0 ? "positive" : value < 0 ? "negative" : "neutral";
+}
+
+function HoldingPerformanceSummary({ holding }: { holding: ScopedHolding }) {
+  const performance = holding.performance;
+  const income = Number(performance.income_eur);
+  const fees = Number(performance.fees_eur);
+  const hasImportedResults = performance.coverage !== "unavailable" || income !== 0 || fees !== 0;
+  if (!hasImportedResults) return null;
+
+  const realized = performance.realized_pnl_eur === null
+    ? null
+    : Number(performance.realized_pnl_eur);
+  const totalReturn = performance.total_return_eur === null
+    ? null
+    : Number(performance.total_return_eur);
+  return (
+    <section className="holding-performance-strip" aria-label="Imported performance history">
+      <div className="performance-strip-heading">
+        <span>Performance history</span>
+        <small>
+          {performance.coverage === "complete"
+            ? "Complete trade coverage"
+            : "Partial history · incomplete totals are hidden"}
+        </small>
+      </div>
+      <div>
+        <small>{performance.coverage === "complete" ? "Realized" : "Known realized"}</small>
+        <strong className={realized === null ? "unavailable" : performanceTone(realized)}>
+          {realized === null ? "—" : signedMoney(realized)}
+        </strong>
+      </div>
+      <div>
+        <small>Income</small>
+        <strong>{eur.format(income)}</strong>
+      </div>
+      <div>
+        <small>Fees</small>
+        <strong>{fees ? `−${eur.format(fees)}` : eur.format(0)}</strong>
+      </div>
+      <div>
+        <small>Total return</small>
+        <strong className={totalReturn === null ? "unavailable" : performanceTone(totalReturn)}>
+          {totalReturn === null ? "—" : signedMoney(totalReturn)}
+        </strong>
+      </div>
+    </section>
+  );
+}
+
+function PortfolioPerformanceSummary({ portfolio }: { portfolio: HoldingsResponse }) {
+  const performance = portfolio.performance;
+  const realized = performance.realized_pnl_eur === null
+    ? null
+    : Number(performance.realized_pnl_eur);
+  const income = Number(performance.income_eur);
+  const fees = Number(performance.fees_eur);
+  const totalReturn = performance.total_return_eur === null
+    ? null
+    : Number(performance.total_return_eur);
+  if (realized === null && income === 0 && fees === 0 && totalReturn === null) return null;
+
+  return (
+    <section className="portfolio-performance-summary" aria-label="All-time imported results">
+      <div className="performance-summary-heading">
+        <span>All-time imported results</span>
+        <small>
+          {performance.coverage === "complete"
+            ? "Complete transaction coverage"
+            : "Partial history · known amounts only"}
+        </small>
+      </div>
+      <div>
+        <small>{performance.coverage === "complete" ? "Realized P/L" : "Known realized P/L"}</small>
+        <strong className={realized === null ? "unavailable" : performanceTone(realized)}>
+          {realized === null ? "—" : signedMoney(realized)}
+        </strong>
+      </div>
+      <div>
+        <small>Imported income</small>
+        <strong>{eur.format(income)}</strong>
+      </div>
+      <div>
+        <small>Imported fees</small>
+        <strong>{fees ? `−${eur.format(fees)}` : eur.format(0)}</strong>
+      </div>
+      <div>
+        <small>Total return</small>
+        <strong className={totalReturn === null ? "unavailable" : performanceTone(totalReturn)}>
+          {totalReturn === null ? "Incomplete history" : signedMoney(totalReturn)}
+        </strong>
+      </div>
+    </section>
+  );
+}
+
 function HoldingDetails({ holding }: { holding: ScopedHolding }) {
+  const [activity, setActivity] = useState<ActivityResponse | null>(null);
+  const costBasis = holding.performance.cost_basis_eur === null
+    ? null
+    : Number(holding.performance.cost_basis_eur);
+
+  useEffect(() => {
+    const params = new URLSearchParams({
+      holding_key: holding.key, limit: "5", display_only: "true",
+    });
+    api<ActivityResponse>(`/activity?${params.toString()}`).then(setActivity).catch(() => null);
+  }, [holding.key]);
   return (
     <div className="holding-details">
       <div className="canonical-strip">
@@ -576,7 +759,15 @@ function HoldingDetails({ holding }: { holding: ScopedHolding }) {
             </p>
           )}
         </div>
-        <PnlLine summary={holding.pnl} />
+        <span className="canonical-metrics">
+          {costBasis !== null && costBasis >= 0 && (
+            <span className="cost-basis-inline">
+              <small>Cost basis</small>
+              <strong>{eur.format(costBasis)}</strong>
+            </span>
+          )}
+          <PnlLine summary={holding.pnl} />
+        </span>
       </div>
       <div className="source-detail-grid">
         {holding.sources.map((source) => (
@@ -609,21 +800,21 @@ function HoldingDetails({ holding }: { holding: ScopedHolding }) {
                 <dt>Original value</dt>
                 <dd>{originalMoney(source.current_value, source.currency)}</dd>
               </div>
-              <div>
-                <dt>Reported P/L</dt>
-                {source.reported_pnl !== null ? (
-                  <dd
-                    className={`pnl-source-value ${Number(source.reported_pnl) >= 0 ? "positive" : "negative"}`}
-                  >
-                    <span>{originalMoney(source.reported_pnl, source.currency)}</span>
-                    {source.reported_pnl_eur !== null && source.currency !== "EUR" && (
-                      <small>{signedMoney(Number(source.reported_pnl_eur))}</small>
-                    )}
+              <SourcePnlMetric source={source} />
+              {source.performance.realized_pnl_eur !== null && (
+                <div>
+                  <dt>Realized P/L</dt>
+                  <dd className={performanceTone(Number(source.performance.realized_pnl_eur))}>
+                    {signedMoney(Number(source.performance.realized_pnl_eur))}
                   </dd>
-                ) : (
-                  <dd className="unavailable">Not reported</dd>
-                )}
-              </div>
+                </div>
+              )}
+              {Number(source.performance.income_eur) !== 0 && (
+                <div>
+                  <dt>Imported income</dt>
+                  <dd>{eur.format(Number(source.performance.income_eur))}</dd>
+                </div>
+              )}
               <div>
                 <dt>Security</dt>
                 <dd title={source.canonical_name}>
@@ -643,6 +834,21 @@ function HoldingDetails({ holding }: { holding: ScopedHolding }) {
             </footer>
           </article>
         ))}
+      </div>
+      <HoldingPerformanceSummary holding={holding} />
+      <div className="holding-activity-preview">
+        <div className="panel-heading">
+          <div><p className="eyebrow">Recent activity</p><h3>{holding.name}</h3></div>
+          <Link to="/activity">View all activity</Link>
+        </div>
+        {activity?.items.length ? activity.items.map((item) => (
+          <div className="holding-activity-row" key={item.id}>
+            <span className={`activity-kind ${item.transaction_type}`}>{item.transaction_type}</span>
+            <strong>{item.symbol}</strong>
+            <span>{new Date(item.executed_at).toLocaleDateString()}</span>
+            <span>{item.value_eur === null ? `${originalMoney(item.value, item.currency)}` : eur.format(Number(item.value_eur))}</span>
+          </div>
+        )) : <p className="muted">No imported activity for this holding yet.</p>}
       </div>
     </div>
   );

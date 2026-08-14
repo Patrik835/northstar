@@ -279,6 +279,7 @@ class EtoroConnector(BrokerConnector):
 
     async def fetch_transactions(self, since: datetime | None) -> list[ConnectorTransaction]:
         await self.validate_credentials()
+        await self._load_pnl()
         start = since or datetime.now(timezone.utc) - timedelta(days=365)
         page_size = 100
         raw_items: list[dict[str, Any]] = []
@@ -299,15 +300,65 @@ class EtoroConnector(BrokerConnector):
             if len(items) < page_size:
                 break
 
+        assert self._pnl is not None
+        open_positions = list(self._pnl.get("positions") or [])
+        for mirror in self._pnl.get("mirrors") or []:
+            open_positions.extend(mirror.get("positions") or [])
         instrument_ids = {
             int(item["instrumentId"])
             for item in raw_items
             if item.get("instrumentId") is not None
         }
+        instrument_ids.update(
+            int(instrument_id)
+            for item in open_positions
+            if (instrument_id := item.get("instrumentID") or item.get("instrumentId"))
+            is not None
+        )
         await self._load_metadata(instrument_ids)
         assert self._portfolio is not None
         currency = str(self._portfolio["accountCurrency"]).upper()
         transactions: list[ConnectorTransaction] = []
+        for item in open_positions:
+            instrument_id_value = item.get("instrumentID") or item.get("instrumentId")
+            opened_at_value = item.get("openDateTime") or item.get("openTimestamp")
+            position_id = item.get("positionID") or item.get("positionId")
+            if instrument_id_value is None or opened_at_value is None or position_id is None:
+                continue
+            opened_at = _timestamp(str(opened_at_value))
+            if since and opened_at <= since:
+                continue
+            instrument_id = int(instrument_id_value)
+            metadata = self._metadata.get(instrument_id, {})
+            ticker = str(metadata.get("symbolFull") or f"ETORO-{instrument_id}")
+            quantity = abs(
+                Decimal(str(item.get("initialUnits") or item.get("units") or 0))
+            )
+            price = _decimal_or_none(item.get("openRate"))
+            value = abs(
+                Decimal(
+                    str(
+                        item.get("initialAmountInDollars")
+                        or item.get("amount")
+                        or item.get("unitsBaseValueDollars")
+                        or 0
+                    )
+                )
+            )
+            transactions.append(
+                ConnectorTransaction(
+                    external_id=f"open-position:{position_id}:{opened_at.isoformat()}",
+                    ticker=ticker,
+                    transaction_type=(
+                        TransactionType.BUY if item.get("isBuy") else TransactionType.SELL
+                    ),
+                    quantity=quantity,
+                    price=price,
+                    value=value,
+                    currency=currency,
+                    executed_at=opened_at,
+                )
+            )
         for item in raw_items:
             if not item.get("closeTimestamp") or item.get("instrumentId") is None:
                 continue
@@ -323,6 +374,34 @@ class EtoroConnector(BrokerConnector):
             net_profit = Decimal(str(item.get("netProfit", 0)))
             value = abs(investment + net_profit)
             position_id = item.get("positionId") or item.get("orderId")
+            opened_at_value = item.get("openTimestamp")
+            if opened_at_value:
+                opened_at = _timestamp(str(opened_at_value))
+                open_value = abs(
+                    Decimal(
+                        str(
+                            item.get("initialInvestment")
+                            or item.get("investment")
+                            or 0
+                        )
+                    )
+                )
+                transactions.append(
+                    ConnectorTransaction(
+                        external_id=f"open-position:{position_id}:{opened_at.isoformat()}",
+                        ticker=ticker,
+                        transaction_type=(
+                            TransactionType.BUY
+                            if item.get("isBuy")
+                            else TransactionType.SELL
+                        ),
+                        quantity=quantity,
+                        price=_decimal_or_none(item.get("openRate")),
+                        value=open_value,
+                        currency=currency,
+                        executed_at=opened_at,
+                    )
+                )
             transactions.append(
                 ConnectorTransaction(
                     external_id=f"closed-position:{position_id}:{executed_at.isoformat()}",

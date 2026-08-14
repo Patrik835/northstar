@@ -35,8 +35,9 @@ This direction matches the strongest capabilities offered by mature trackers: ge
   Spot trades, completed transfers, trade/withdrawal fees, positive asset distributions,
   one-time upgrade backfill, snapshots, and scheduled/manual synchronization.
 - eToro public API authentication, aggregate positions/cash/copy value, instrument metadata,
-  broker-reported position/copy/account P&L in provider currency and EUR, closed-trade
-  history, current/month-end snapshots, and scheduled/manual synchronization.
+  broker-reported position/copy/account P&L in provider currency and EUR, current and
+  historical opening activity, closed-trade exits, versioned activity backfill,
+  current/month-end snapshots, and scheduled/manual synchronization.
 - Working-day ECB FX fetching, dated database storage, same-day caching, cross-currency
   conversion, and last-known-good fallback for synchronization.
 - Persisted live-connection sync runs with initial/manual/scheduled triggers,
@@ -53,7 +54,8 @@ This direction matches the strongest capabilities offered by mature trackers: ge
   snapshot idempotency, including resumed and post-backfill incremental history.
 - Canonical instruments and provider aliases that combine equivalent securities and crypto while preserving every broker's original identifiers.
 - Searchable holdings UI with consolidated stock/ETF and crypto views, per-platform
-  filtering, aggregated broker-reported P/L, and expandable per-source details.
+  filtering, provider-first open P/L, average-cost realized results with explicit history
+  coverage, and expandable per-source activity.
 - Trading 212 Crypto CSV imports with validation, overlap-safe deduplication, transaction-backed balance reconstruction, current Binance pricing, and explicit valuation fallback warnings.
 - Native XTB CSV/XLSX imports for current stock/ETF holdings, explicit cash, P/L, closed
   positions, cash operations, and fees, with canonical aliases, EUR conversion, valuation
@@ -62,9 +64,10 @@ This direction matches the strongest capabilities offered by mature trackers: ge
 - Connection setup guides, encrypted credential storage, masked hints, secure reconnect,
   and deletion.
 - Goals, risk tolerance, and time-horizon profile.
-- Basic dashboard total, position count, and allocation-by-source API/UI.
+- Dashboard current total plus source and asset allocation. Historical performance APIs
+  exist, but their overview presentation is deferred for a data-model and UX redesign.
 - Core database tables for positions, transactions, snapshots, news, recommendations, and chat history.
-- Sixty backend tests currently pass, including crypto/XTB file parsing and import,
+- Sixty-nine backend tests currently pass, including crypto/XTB file parsing and import,
   canonical matching, holdings aggregation, sync-run state handling, and mocked Binance,
   eToro, ECB, and public crypto-price contracts; frontend lint and the production build
   also pass.
@@ -79,10 +82,12 @@ This direction matches the strongest capabilities offered by mature trackers: ge
   deeper full-history reconciliation remains.
 - Binance and eToro have mocked contract coverage and successful real read-only account
   smoke tests.
-- eToro's aggregate portfolio, dedicated Real-account P&L, and closed trades are supported;
-  broader product/history reconciliation remains.
+- eToro's aggregate portfolio, dedicated Real-account P&L, and both sides of documented
+  trades are supported. Its Public API currently exposes no dividend ledger; broader
+  product/history reconciliation remains.
 - Asset-type allocation is returned by the API but not displayed.
-- Daily snapshots exist, but there is no historical portfolio API, performance engine, or chart.
+- Performance is bounded by stored daily valuations and imported cash-flow coverage;
+  historical non-EUR activity without a stored conversion is explicitly marked partial.
 - AI, news, and benchmark adapters exist only as interfaces/placeholders.
 - Public signup exists, but production-grade recovery, IP-aware throttling, 2FA, privacy controls, and abuse protection do not.
 
@@ -155,15 +160,15 @@ All implementation tickets should target approximately 1–3 working days and in
 ### Milestone 2 — Portfolio Analytics and Usable Dashboard
 
 25. [x] Build a holdings API/page with search, value/P&L sorting, asset/platform grouping, and original/EUR values.
-26. Build holding detail with quantity, cost, value, gain/loss, source accounts, and activity. (Partial: expandable quantity, average price, value, aliases, source accounts, valuation time, stale/estimated states, and aggregated/per-source broker-reported P/L are implemented; calculated gain/loss and activity remain.)
-27. Build a unified transaction/activity API and filterable page.
-28. Add editable categories, tags, notes, and target allocation to holdings.
-29. Build consolidated daily portfolio-history queries with 1M/3M/6M/1Y/all ranges.
-30. Add total-value and net-invested-capital chart.
-31. Implement money-weighted return/XIRR from dated external cash flows.
-32. Implement time-weighted return using daily valuations and cash-flow boundaries.
-33. Separate return into capital gain, income, fees, and currency movement.
-34. Add realized/unrealized gain and average-cost reporting without tax claims.
+26. [x] Build holding detail with quantity, cost/value/open-gain coverage, source accounts, valuation state, and recent activity; use broker-reported open P/L first and a fully reconciled trade calculation only as fallback.
+27. [x] Build a unified transaction/activity API and filterable page across date, source, instrument search, and transaction type.
+28. [deferred] Holding-metadata persistence exists, but categories, tags, notes, and target-allocation controls are intentionally hidden until they can add clear value without cluttering holding detail.
+29. [x] Build consolidated daily portfolio-history queries with 1M/3M/6M/1Y/all ranges and carry-forward values between source synchronization dates.
+30. [deferred] Redesign the total-value and net-invested-capital visualization after validating a more reliable history model; the first chart was removed from the overview.
+31. [partial] Money-weighted return/XIRR calculation exists in the backend, but overview presentation is deferred with the history redesign.
+32. [partial] Time-weighted return calculation exists in the backend, but overview presentation is deferred with the history redesign.
+33. [partial] Return attribution exists in the backend, but overview presentation is deferred with the history redesign; Activity totals are converted to EUR, with estimated-FX coverage identified when an exact historical rate is unavailable.
+34. [x] Add non-tax average-cost reporting that retains realized gain after sales and reinvestment, keeps broker-reported open P/L authoritative, separates imported income and fees, and withholds total return when transaction or FX coverage is incomplete.
 35. Add allocation charts by asset type, holding, broker, currency, sector, and geography.
 36. Add best/worst performers and contribution-to-return views.
 37. Add dividend history, yield metrics, monthly income chart, and projected income calendar.

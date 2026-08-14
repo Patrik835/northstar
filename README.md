@@ -12,16 +12,17 @@ connectors for Trading 212, Binance Spot, and eToro. Public registration with em
 verification, authentication, encrypted and replaceable broker credentials, user profiles, scheduled
 manual refresh, persisted ECB currency conversion, observable synchronization runs,
 rate-limit-aware retry/backoff, visible connection freshness, and
-the basic aggregated dashboard are implemented. Canonical instruments now combine equivalent holdings across
-brokers, while a searchable holdings view exposes consolidated stock/ETF and crypto
-positions, subtle Trading 212/eToro/XTB reported P/L with coverage labels, and each
-platform's original detail. Holdings also show their latest valuation time and only
-surface stale, estimated, or materially unreconciled data when attention is needed.
+the aggregated analytics dashboard are implemented. Canonical instruments combine equivalent holdings across
+brokers, while searchable Holdings and Activity views expose consolidated stock/ETF and
+crypto positions, provider-first open P/L, non-tax average-cost realized results, explicit
+history coverage, source detail, and filterable portfolio events. The overview currently prioritizes trustworthy current
+totals and allocation views; historical performance presentation is deferred while its
+data model and UX are redesigned.
 Binance and eToro both have automated
 contract coverage and successful real read-only account smoke tests.
 Trading 212 Crypto is supported through repeatable, deduplicated CSV imports because its
-separate Crypto account has no Public API. Advanced analytics, real estate, news, and AI
-remain planned or scaffolded.
+separate Crypto account has no Public API. Advanced risk/income analytics, real estate,
+news, and AI remain planned or scaffolded.
 
 See [PROJECT_REQUIREMENTS.md](PROJECT_REQUIREMENTS.md) for the product contract and
 [NORTHSTAR_ROADMAP.md](NORTHSTAR_ROADMAP.md) for the ticket-sized implementation
@@ -96,7 +97,7 @@ backoff and honor provider cooldown headers. Long cooldowns are left for the nex
 scheduled run so one throttled account cannot hold up the rest. Current values retain
 their source currency, are converted to EUR for aggregation, and connection cards show
 fresh/stale state plus the last successful synchronization. A live connection is stale
-after two configured synchronization intervals; file imports do not age against the live
+after 24 hours without a successful refresh; file imports do not age against the live
 schedule.
 
 ## Trading 212 Crypto imports
@@ -239,7 +240,8 @@ available at `http://localhost:8000/docs`.
   for Spot trade history, so a fully sold-out asset with no current balance, transfer, or
   income record cannot yet be discovered automatically. eToro imports the documented
   aggregate portfolio, enriches holdings and snapshots with broker-reported P&L from the
-  Real-account P&L endpoint, and imports closed-trade history. Reported P&L is retained in
+  Real-account P&L endpoint, and imports current/historical opening activity plus closed-trade
+  exits. The official API does not expose dividend-ledger activity. Reported P&L is retained in
   its provider currency and converted to EUR without presenting it as an app-calculated
   return. All
   three live connectors refresh every 1–2 hours, and eToro receives an additional

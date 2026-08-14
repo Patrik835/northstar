@@ -64,6 +64,19 @@ export type StatementImportResult = {
 
 export type AssetType = "stock" | "etf" | "crypto" | "cash" | "other";
 
+export type InvestmentPerformanceBreakdown = {
+  cost_basis_eur: string | null;
+  open_pnl_eur: string | null;
+  open_pnl_percentage: string | null;
+  open_pnl_source: "provider" | "calculated" | "mixed" | "unavailable";
+  realized_pnl_eur: string | null;
+  income_eur: string;
+  fees_eur: string;
+  total_return_eur: string | null;
+  coverage: "complete" | "partial" | "unavailable";
+  missing_event_count: number;
+};
+
 export type HoldingSource = {
   broker: Broker;
   connection_id: string;
@@ -88,6 +101,11 @@ export type HoldingSource = {
   is_estimated: boolean;
   freshness_status: "fresh" | "stale";
   is_stale: boolean;
+  calculated_cost_eur: string | null;
+  calculated_gain_eur: string | null;
+  calculated_gain_percentage: string | null;
+  gain_coverage: "complete" | "partial" | "unavailable";
+  performance: InvestmentPerformanceBreakdown;
 };
 
 export type Holding = {
@@ -111,6 +129,15 @@ export type Holding = {
   stale_source_count: number;
   has_estimated_value: boolean;
   sources: HoldingSource[];
+  calculated_cost_eur: string | null;
+  calculated_gain_eur: string | null;
+  calculated_gain_percentage: string | null;
+  gain_coverage: "complete" | "partial" | "unavailable";
+  performance: InvestmentPerformanceBreakdown;
+  category: string | null;
+  tags: string[];
+  notes: string | null;
+  target_allocation_percentage: string | null;
 };
 
 export type ReconciliationWarning = {
@@ -135,4 +162,102 @@ export type HoldingsResponse = {
   reconciliation_warnings: ReconciliationWarning[];
   sources: AllocationItem[];
   holdings: Holding[];
+  performance: InvestmentPerformanceBreakdown;
+  net_contributions_eur: string | null;
+  external_flow_coverage: "complete" | "partial" | "unavailable";
+};
+
+export type TransactionType =
+  | "buy"
+  | "sell"
+  | "dividend"
+  | "deposit"
+  | "withdrawal"
+  | "fee"
+  | "other";
+
+export type ActivityItem = {
+  id: string;
+  broker: Broker;
+  connection_id: string;
+  holding_key: string | null;
+  symbol: string;
+  name: string | null;
+  transaction_type: TransactionType;
+  quantity: string | null;
+  price: string | null;
+  value: string;
+  value_eur: string | null;
+  is_estimated_fx: boolean;
+  currency: string;
+  executed_at: string;
+};
+
+export type ActivityResponse = {
+  items: ActivityItem[];
+  total: number;
+  offset: number;
+  limit: number;
+  brokers: Broker[];
+  transaction_types: TransactionType[];
+  summary: {
+    bought: ActivityTotal;
+    sold: ActivityTotal;
+    dividends: ActivityTotal;
+    deposited: ActivityTotal;
+  };
+};
+
+export type ActivityTotal = {
+  value_eur: string;
+  event_count: number;
+  missing_eur_count: number;
+  estimated_eur_count: number;
+  native_values: Array<{
+    currency: string;
+    value: string;
+    event_count: number;
+  }>;
+};
+
+export type HoldingMetadata = {
+  holding_key: string;
+  category: string | null;
+  tags: string[];
+  notes: string | null;
+  target_allocation_percentage: string | null;
+  updated_at: string | null;
+};
+
+export type PortfolioHistoryPoint = {
+  date: string;
+  total_value_eur: string;
+  net_invested_eur: string;
+};
+
+export type ReturnMetric = {
+  percentage: string | null;
+  status: "available" | "partial" | "unavailable";
+  message: string | null;
+};
+
+export type PortfolioPerformance = {
+  range: "1m" | "3m" | "6m" | "1y" | "all";
+  currency: "EUR";
+  start_date: string | null;
+  end_date: string | null;
+  points: PortfolioHistoryPoint[];
+  money_weighted_return: ReturnMetric;
+  time_weighted_return: ReturnMetric;
+  attribution: {
+    total_return_eur: string | null;
+    capital_gain_eur: string | null;
+    income_eur: string;
+    fees_eur: string;
+    currency_movement_eur: string | null;
+    status: "available" | "estimated" | "partial" | "unavailable";
+    message: string | null;
+  };
+  missing_fx_transaction_count: number;
+  notices: string[];
 };

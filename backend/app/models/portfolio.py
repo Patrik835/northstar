@@ -11,6 +11,7 @@ from sqlalchemy import (
     ForeignKey,
     Numeric,
     String,
+    Text,
     UniqueConstraint,
     func,
 )
@@ -122,6 +123,32 @@ class Transaction(Base):
     executed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
 
     connection: Mapped["BrokerConnection"] = relationship(back_populates="transactions")
+
+
+class HoldingMetadata(Base):
+    """User-owned annotations for a consolidated holding presentation key."""
+
+    __tablename__ = "holding_metadata"
+    __table_args__ = (
+        UniqueConstraint("user_id", "holding_key", name="uq_user_holding_metadata"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    holding_key: Mapped[str] = mapped_column(String(200))
+    category: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    tags_json: Mapped[str] = mapped_column(Text, default="[]", server_default="[]")
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    target_allocation_percentage: Mapped[Decimal | None] = mapped_column(
+        Numeric(6, 3), nullable=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
 
 from app.models.broker import BrokerConnection  # noqa: E402

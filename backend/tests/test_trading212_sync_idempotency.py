@@ -17,6 +17,7 @@ from app.integrations.connectors.base import (
     ConnectorTransaction,
     ConnectorTransactionPage,
 )
+from app.integrations.market_data import FxRateError
 from app.models.broker import BrokerConnection
 from app.models.enums import (
     AssetType,
@@ -39,7 +40,8 @@ class EurRates:
     async def convert_to_eur(
         self, value: Decimal, currency: str, as_of: date | None = None
     ) -> Decimal:
-        assert currency == "EUR"
+        if currency != "EUR":
+            raise FxRateError("Historical conversion unavailable in this test")
         return value
 
 
@@ -219,12 +221,21 @@ async def _connection(
 
 
 @pytest.mark.asyncio
-async def test_binance_activity_upgrade_backfills_once_then_syncs_incrementally() -> None:
+@pytest.mark.parametrize(
+    ("broker", "cursor_stream"),
+    [
+        (Broker.BINANCE, "binance-activity-v1"),
+        (Broker.ETORO, "etoro-activity-v2"),
+    ],
+)
+async def test_activity_upgrade_backfills_once_then_syncs_incrementally(
+    broker: Broker, cursor_stream: str
+) -> None:
     engine, session_factory = _database()
     try:
         with session_factory() as sync_db:
             db = AsyncSessionAdapter(sync_db)
-            connection = await _connection(db, Broker.BINANCE)
+            connection = await _connection(db, broker)
             connection.last_synced_at = datetime(2026, 8, 1, tzinfo=timezone.utc)
             await db.commit()
             service = ConnectionSyncService(
@@ -237,13 +248,16 @@ async def test_binance_activity_upgrade_backfills_once_then_syncs_incrementally(
             await service.sync(connection, incremental)
 
             cursor = await db.scalar(
-                select(SyncCursor).where(SyncCursor.stream == "binance-activity-v1")
+                select(SyncCursor).where(SyncCursor.stream == cursor_stream)
             )
             assert cursor is not None
             assert cursor.backfill_complete is True
             assert initial.requested_since == [None]
             assert incremental.requested_since[0] is not None
             assert await db.scalar(select(func.count()).select_from(Transaction)) == 1
+            stored_activity = await db.scalar(select(Transaction))
+            assert stored_activity is not None
+            assert stored_activity.value_eur is None
             position = await db.scalar(select(Position))
             snapshot = await db.scalar(select(PortfolioSnapshot))
             assert position is not None
@@ -338,6 +352,9 @@ async def test_failed_backfill_resumes_from_the_last_committed_cursor() -> None:
             assert cursor.backfill_complete is True
             assert synced.status is ConnectionStatus.ACTIVE
             assert await db.scalar(select(func.count()).select_from(Transaction)) == 3
+            assert set(await db.scalars(select(Transaction.value_eur))) == {
+                Decimal("100")
+            }
     finally:
         engine.dispose()
 

@@ -42,9 +42,7 @@ class InstrumentResolver:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
-    async def resolve(
-        self, broker: Broker, position: ConnectorPosition
-    ) -> Instrument:
+    async def resolve(self, broker: Broker, position: ConnectorPosition) -> Instrument:
         alias = await self.db.scalar(
             select(InstrumentAlias).where(
                 InstrumentAlias.broker == broker,
@@ -93,9 +91,7 @@ class InstrumentResolver:
                 return by_isin
 
         key = identity_key(broker, position)
-        by_key = await self.db.scalar(
-            select(Instrument).where(Instrument.identity_key == key)
-        )
+        by_key = await self.db.scalar(select(Instrument).where(Instrument.identity_key == key))
         if by_key:
             return by_key
 
@@ -129,6 +125,7 @@ class InstrumentResolver:
 
     @staticmethod
     def _enrich(instrument: Instrument, position: ConnectorPosition) -> None:
+        instrument.canonical_symbol = normalized_symbol(position)
         isin = valid_isin(position)
         if isin and not instrument.isin:
             instrument.isin = isin

@@ -6,7 +6,7 @@ import httpx
 import pytest
 
 from app.integrations.connectors.base import BrokerUnavailableError, InvalidBrokerCredentials
-from app.integrations.connectors.trading212 import Trading212Connector
+from app.integrations.connectors.trading212 import Trading212Connector, _canonical_symbol
 from app.models.enums import AssetType, TransactionType
 
 
@@ -139,6 +139,12 @@ async def test_trading212_uses_verified_metadata_instead_of_name_guessing() -> N
 
     assert positions[0].name == "Global Market Portfolio"
     assert positions[0].asset_type is AssetType.ETF
+
+
+def test_trading212_removes_lowercase_exchange_marker_without_losing_share_class() -> None:
+    assert _canonical_symbol("ASMLa_EQ") == "ASML"
+    assert _canonical_symbol("AAPL_US_EQ") == "AAPL"
+    assert _canonical_symbol("BRKb_US_EQ") == "BRKB"
 
 
 @pytest.mark.asyncio

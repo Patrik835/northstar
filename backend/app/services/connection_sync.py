@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 GENERIC_SYNC_ERROR = "The broker data could not be imported. Please try again."
 MAX_BACKFILL_PAGES_PER_STREAM = 5
 BINANCE_ACTIVITY_CURSOR = "binance-activity-v1"
+ETORO_ACTIVITY_CURSOR = "etoro-activity-v2"
 RECONCILIATION_PERCENT_THRESHOLD = Decimal("3")
 RECONCILIATION_ABSOLUTE_THRESHOLD_EUR = Decimal("5")
 
@@ -110,21 +111,25 @@ class ConnectionSyncService:
             history_warning = None
             paginated_history = bool(connector.transaction_history_streams())
             transactions: list[ConnectorTransaction] = []
-            binance_backfill_needed = False
+            activity_backfill_stream = {
+                Broker.BINANCE: BINANCE_ACTIVITY_CURSOR,
+                Broker.ETORO: ETORO_ACTIVITY_CURSOR,
+            }.get(connection.broker)
+            activity_backfill_needed = False
             try:
                 if paginated_history:
                     await self._sync_paginated_history(connection, connector, run)
                 else:
                     transaction_since = connection.last_synced_at
-                    if connection.broker is Broker.BINANCE:
+                    if activity_backfill_stream is not None:
                         activity_cursor = await self.db.scalar(
                             select(SyncCursor).where(
                                 SyncCursor.broker_connection_id == connection.id,
-                                SyncCursor.stream == BINANCE_ACTIVITY_CURSOR,
+                                SyncCursor.stream == activity_backfill_stream,
                             )
                         )
-                        binance_backfill_needed = activity_cursor is None
-                        if binance_backfill_needed:
+                        activity_backfill_needed = activity_cursor is None
+                        if activity_backfill_needed:
                             transaction_since = None
                     transactions = await connector.fetch_transactions(transaction_since)
             except BrokerPermissionError as exc:
@@ -218,11 +223,12 @@ class ConnectionSyncService:
                 new_transactions_written = await self._store_transactions(
                     connection.id, transactions
                 )
-                if binance_backfill_needed and history_warning is None:
+                if activity_backfill_needed and history_warning is None:
+                    assert activity_backfill_stream is not None
                     self.db.add(
                         SyncCursor(
                             broker_connection_id=connection.id,
-                            stream=BINANCE_ACTIVITY_CURSOR,
+                            stream=activity_backfill_stream,
                             next_page_path=None,
                             backfill_complete=True,
                         )
@@ -386,6 +392,20 @@ class ConnectionSyncService:
         for item in transactions:
             if item.external_id not in existing:
                 unique_new.setdefault(item.external_id, item)
+        converted: list[tuple[ConnectorTransaction, Decimal | None]] = []
+        for item in unique_new.values():
+            if item.currency.upper() == "EUR":
+                value_eur = item.value
+            else:
+                try:
+                    value_eur = await self.fx_rates.convert_to_eur(
+                        item.value, item.currency, item.executed_at.date()
+                    )
+                except FxRateError:
+                    # Preserve the original event when historical FX is unavailable;
+                    # analytics exposes this gap instead of inventing a conversion.
+                    value_eur = None
+            converted.append((item, value_eur))
         self.db.add_all(
             [
                 Transaction(
@@ -396,10 +416,11 @@ class ConnectionSyncService:
                     quantity=item.quantity,
                     price=item.price,
                     value=item.value,
+                    value_eur=value_eur,
                     currency=item.currency,
                     executed_at=item.executed_at,
                 )
-                for item in unique_new.values()
+                for item, value_eur in converted
             ]
         )
         return len(unique_new)

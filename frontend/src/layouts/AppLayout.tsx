@@ -12,6 +12,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
         <nav>
           <Link to="/" active={path === "/"}>Overview</Link>
           <Link to="/holdings" active={path === "/holdings"}>Holdings</Link>
+          <Link to="/activity" active={path === "/activity"}>Activity</Link>
           <Link to="/connections" active={path === "/connections"}>Connections</Link>
           <Link to="/assistant" active={path === "/assistant"}>AI assistant</Link>
           <Link to="/profile" active={path === "/profile"}>Goals & risk</Link>

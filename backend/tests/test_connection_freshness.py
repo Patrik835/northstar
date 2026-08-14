@@ -19,9 +19,9 @@ def _connection(broker: Broker, successful_at: datetime | None) -> BrokerConnect
     )
 
 
-def test_live_connection_becomes_stale_after_two_sync_intervals() -> None:
+def test_live_connection_becomes_stale_after_24_hours() -> None:
     connection = _connection(
-        Broker.TRADING212, datetime.now(timezone.utc) - timedelta(hours=5)
+        Broker.TRADING212, datetime.now(timezone.utc) - timedelta(hours=25)
     )
 
     result = ConnectionRead.from_connection(connection, sync_interval_minutes=120)
@@ -29,6 +29,17 @@ def test_live_connection_becomes_stale_after_two_sync_intervals() -> None:
     assert result.freshness_status == "stale"
     assert result.is_stale is True
     assert result.stale_after is not None
+
+
+def test_live_connection_is_fresh_within_24_hours() -> None:
+    connection = _connection(
+        Broker.TRADING212, datetime.now(timezone.utc) - timedelta(hours=23)
+    )
+
+    result = ConnectionRead.from_connection(connection, sync_interval_minutes=120)
+
+    assert result.freshness_status == "fresh"
+    assert result.is_stale is False
 
 
 def test_manual_csv_import_is_not_marked_stale_by_live_sync_schedule() -> None:

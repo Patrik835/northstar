@@ -5,6 +5,7 @@ from typing import Literal
 from app.models.enums import Broker
 
 LIVE_BROKERS = frozenset({Broker.TRADING212, Broker.ETORO, Broker.BINANCE})
+LIVE_STALE_AFTER = timedelta(hours=24)
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,7 +23,7 @@ def connection_freshness(
     now: datetime | None = None,
 ) -> FreshnessDetails:
     stale_after = (
-        successful_at + timedelta(minutes=sync_interval_minutes * 2)
+        successful_at + LIVE_STALE_AFTER
         if successful_at is not None and broker in LIVE_BROKERS
         else None
     )

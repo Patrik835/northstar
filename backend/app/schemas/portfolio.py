@@ -3,7 +3,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 from app.models.enums import AssetType, Broker
 
@@ -27,6 +27,21 @@ class FeatureStatus(BaseModel):
     ai: bool
     news: bool
     benchmarks: bool
+
+
+class InvestmentPerformanceBreakdown(BaseModel):
+    cost_basis_eur: Decimal | None = None
+    open_pnl_eur: Decimal | None = None
+    open_pnl_percentage: Decimal | None = None
+    open_pnl_source: Literal[
+        "provider", "calculated", "mixed", "unavailable"
+    ] = "unavailable"
+    realized_pnl_eur: Decimal | None = None
+    income_eur: Decimal = Decimal(0)
+    fees_eur: Decimal = Decimal(0)
+    total_return_eur: Decimal | None = None
+    coverage: Literal["complete", "partial", "unavailable"] = "unavailable"
+    missing_event_count: int = 0
 
 
 class HoldingSource(BaseModel):
@@ -53,6 +68,13 @@ class HoldingSource(BaseModel):
     is_estimated: bool
     freshness_status: Literal["fresh", "stale"]
     is_stale: bool
+    calculated_cost_eur: Decimal | None = None
+    calculated_gain_eur: Decimal | None = None
+    calculated_gain_percentage: Decimal | None = None
+    gain_coverage: Literal["complete", "partial", "unavailable"] = "unavailable"
+    performance: InvestmentPerformanceBreakdown = Field(
+        default_factory=InvestmentPerformanceBreakdown
+    )
 
 
 class Holding(BaseModel):
@@ -76,6 +98,47 @@ class Holding(BaseModel):
     stale_source_count: int
     has_estimated_value: bool
     sources: list[HoldingSource]
+    calculated_cost_eur: Decimal | None = None
+    calculated_gain_eur: Decimal | None = None
+    calculated_gain_percentage: Decimal | None = None
+    gain_coverage: Literal["complete", "partial", "unavailable"] = "unavailable"
+    performance: InvestmentPerformanceBreakdown = Field(
+        default_factory=InvestmentPerformanceBreakdown
+    )
+    category: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    notes: str | None = None
+    target_allocation_percentage: Decimal | None = None
+
+
+class HoldingMetadataUpdate(BaseModel):
+    category: str | None = Field(default=None, max_length=80)
+    tags: list[str] = Field(default_factory=list, max_length=12)
+    notes: str | None = Field(default=None, max_length=2000)
+    target_allocation_percentage: Decimal | None = Field(default=None, ge=0, le=100)
+
+    @field_validator("category", "notes")
+    @classmethod
+    def clean_optional_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
+
+    @field_validator("tags")
+    @classmethod
+    def clean_tags(cls, value: list[str]) -> list[str]:
+        result: list[str] = []
+        for raw in value:
+            tag = raw.strip()[:32]
+            if tag and tag.casefold() not in {item.casefold() for item in result}:
+                result.append(tag)
+        return result
+
+
+class HoldingMetadataRead(HoldingMetadataUpdate):
+    holding_key: str
+    updated_at: datetime | None = None
 
 
 class ReconciliationWarning(BaseModel):
@@ -100,3 +163,8 @@ class HoldingsResponse(BaseModel):
     reconciliation_warnings: list[ReconciliationWarning]
     sources: list[AllocationItem]
     holdings: list[Holding]
+    performance: InvestmentPerformanceBreakdown = Field(
+        default_factory=InvestmentPerformanceBreakdown
+    )
+    net_contributions_eur: Decimal | None = None
+    external_flow_coverage: Literal["complete", "partial", "unavailable"] = "unavailable"
