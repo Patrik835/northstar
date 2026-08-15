@@ -9,6 +9,7 @@ from urllib.parse import urlencode
 
 import httpx
 
+from app.integrations.binance_assets import binance_valuation_asset
 from app.integrations.connectors.base import (
     BrokerConnector,
     BrokerPermissionError,
@@ -228,7 +229,8 @@ class BinanceConnector(BrokerConnector):
             quantity = Decimal(str(item.get("free", 0))) + Decimal(str(item.get("locked", 0)))
             if not asset or not quantity:
                 continue
-            rate = self._conversion_rate(asset)
+            valuation_asset = binance_valuation_asset(asset)
+            rate = self._conversion_rate(valuation_asset)
             if rate is None:
                 unpriced.append(asset)
                 continue
@@ -236,13 +238,17 @@ class BinanceConnector(BrokerConnector):
                 ConnectorPosition(
                     instrument_id=f"BINANCE:{asset}",
                     ticker=asset,
-                    name=asset if asset != "EUR" else "Cash (EUR)",
+                    name=(
+                        "Cash (EUR)"
+                        if asset == "EUR"
+                        else valuation_asset
+                    ),
                     asset_type=AssetType.CASH if asset == "EUR" else AssetType.CRYPTO,
                     quantity=quantity,
                     average_price=None,
                     current_value=quantity * rate,
                     currency="EUR",
-                    canonical_symbol=asset,
+                    canonical_symbol=valuation_asset,
                 )
             )
         if unpriced:

@@ -76,12 +76,12 @@ required outcome of each product phase.
 ### Phase 2 — Portfolio Analytics and Dashboard
 
 - Searchable holdings and unified transaction/activity views.
-- Consolidated daily portfolio history and 1M/3M/6M/1Y/all chart ranges.
+- Consolidated portfolio history and 1W/1M/3M/6M/1Y/5Y/all chart ranges, with
+  bounded daily, weekly-average, monthly-average, or adaptive samples for fast display.
 - Net contributions, realized/unrealized gain, dividends, fees, currency effects, total
   return, time-weighted return, and money-weighted return/XIRR.
 - Allocation by asset type, holding, broker, currency, sector, and geography.
 - Performance contribution, drawdown, volatility, concentration, and diversification.
-- Dividend history, yield, income calendar, and projected income.
 - Cached benchmark comparison using configurable investable ETF proxies.
 - Target allocation, drift reporting, and educational rebalancing calculations.
 - CSV exports for holdings, transactions, income, and performance.
@@ -201,6 +201,9 @@ The following are intentionally outside the initial stock/ETF/crypto product:
   warning rather than silently replacing it with incomplete data.
 - Daily historical valuations begin when a connection is first synced unless reliable
   transactions and market data allow an explicitly identified backfill.
+- Reconstructed history must be labelled as estimated, use persisted provider prices and
+  dated FX rather than interpolated portfolio totals, and join continuously to the first
+  observed portfolio snapshot.
 - Deleted connections remove imported data according to the documented retention policy.
 
 ## 6. Data Sources and Synchronization
@@ -244,7 +247,8 @@ errors; provider-specific payloads do not leak into route handlers or the fronte
   Binance requires a symbol for Spot trade history, so fully sold-out assets with no other
   discoverable account record remain part of the deeper full-history/reconciliation work.
 - Resolve assets through EUR or safe intermediate quote pairs and clearly mark assets
-  that cannot be priced.
+  that cannot be priced. Binance's internal `LDUSDC` Earn balance is valued through its
+  underlying USDC rate, retains the provider alias, and consolidates under canonical USDC.
 - Users must be instructed to enable Reading only and disable trading, futures, margin,
   and withdrawals.
 
@@ -308,9 +312,10 @@ errors; provider-specific payloads do not leak into route handlers or the fronte
 - Market-data access is provider-abstracted and free-first; paid providers may be added
   later without changing portfolio services.
 - Finnhub is the initial news and financial-calendar provider and remains feature-flagged.
-- Alpha Vantage daily series may provide cached investable ETF benchmark proxies. The
-  benchmark feature remains disabled when data is unavailable or provider terms/limits
-  are unsuitable.
+- Alpha Vantage weekly equity and USD/EUR series provide a durable, rate-limit-aware
+  cache for reconstructed pre-snapshot history. Backfill prioritizes the largest current
+  holdings and resumes daily; absent or partial market coverage must remain visible as an
+  estimate. The same provider boundary may later supply investable ETF benchmark proxies.
 - Benchmarks compare return, not raw account value, and show the selected proxy,
   currency, period, and data timestamp.
 
@@ -321,11 +326,20 @@ errors; provider-specific payloads do not leak into route handlers or the fronte
 - Total current portfolio value in EUR with last-updated and data-quality status.
 - Change and return for the selected period, with net contributions distinguished from
   investment performance.
-- Portfolio-history chart with 1M/3M/6M/1Y/all ranges.
+- Simple two-line total-value and invested-amount history chart with
+  1W/1M/3M/6M/1Y/5Y/all ranges. Keep short ranges daily, reduce 1Y to roughly 52
+  weekly averages, and use bounded monthly or adaptive averages for longer ranges so
+  the chart remains responsive. Invested amount is derived from each source's portfolio
+  value less provider-reported open P/L, falling back to value where P/L is unavailable.
+  Keep every range selectable and fit the graph to the available history inside that
+  range. Before observed snapshots begin, reconstruct weekly values only when transaction,
+  price, and FX evidence exists; label those points as estimated and state their actual dates.
 - Allocation by source and asset class, followed by currency, sector, geography, and
   individual holding.
 - Best/worst holdings, recent activity, income, upcoming events, news, and alerts.
 - Responsive, keyboard-accessible loading, empty, stale, partial, and error states.
+- Keep advanced analysis on a dedicated Analytics page so Overview remains a simple
+  current-value and history summary.
 
 ### 8.2 Holdings and Activity
 
@@ -344,8 +358,13 @@ errors; provider-specific payloads do not leak into route handlers or the fronte
 - Provide realized/unrealized performance without claiming tax treatment.
 - Provide contribution to return, volatility, drawdown, concentration, and allocation
   drift with calculation definitions.
-- ETF look-through is optional when reliable holdings metadata is available and must
-  state its source/as-of date.
+- Benchmark comparison must apply the same imported external cash flows to the portfolio
+  and proxy, use cached ETF prices in EUR, and disclose reconstructed or missing-flow coverage.
+- Sector and geography classification must prefer verified provider metadata, then use
+  deterministic, reviewable canonical-symbol, industry/name, ETF-mandate, and ISIN rules.
+  Uncertain instruments remain unclassified rather than being guessed.
+- Rebalancing output is educational arithmetic only and must state that it excludes tax,
+  fees, liquidity, account constraints, and suitability.
 
 ## 9. News, Alerts, and AI
 
@@ -441,14 +460,15 @@ Status meanings:
 | Provider-specific file data | Complete | Trading 212 Crypto CSV and native XTB CSV/XLSX imports validate atomically, prevent duplicate activity, preserve valuation provenance, and support repeat imports. XTB's native three-sheet workbook is verified for current stock/ETF positions, P/L, closed-position activity, cash operations, fees/tax, canonical metadata, and history-only preservation. Generic stock/crypto files and manual entry remain intentionally out of scope. |
 | Canonical instruments and broker aliases | Complete | Global instruments retain ISIN/symbol identity while provider aliases preserve Trading 212 Invest, Trading 212 Crypto, Binance, eToro, and XTB identifiers. Sync/import resolution combines matching securities and crypto across platforms. |
 | Automatic data-quality and reconciliation | Partial | Trading 212 and eToro synchronization silently compare imported holdings against independently reported provider totals and warn only beyond both 3% and EUR 5. Binance has no independent comparison total; Trading 212 Crypto overlap deduplication remains automatic. Broader transaction-level reconciliation remains. |
-| ECB FX conversion and market-data cache | Complete | ECB working-day rates are fetched, persisted by publication date, cached in-process and across processes, looked up by date, converted through EUR, and backed by the newest stored rate set during temporary ECB failures. A daily refresh supplements on-demand fetching. |
+| FX conversion and historical market-data cache | Complete | ECB working-day rates are fetched, persisted by publication date, cached in-process and across processes, looked up by date, converted through EUR, and backed by the newest stored rate set during temporary ECB failures. Alpha Vantage weekly equity and USD/EUR series are persisted for reconstructed history; calls are paced, stop cleanly on provider limits, prioritize larger holdings, and resume on daily runs. |
 | Scheduled synchronization | Partial | APScheduler refreshes Trading 212, Binance, and eToro every 120 minutes by default and adds eToro month-end and daily ECB runs. Connection syncs persist running/success/partial/error status, triggers, counts, timestamps, and safe details. Safe GET requests use bounded exponential backoff for transient failures and honor provider cooldown headers; stuck-run recovery and distributed-worker safety remain. |
 | Connection freshness visibility | Complete | Connection cards distinguish fresh, stale, and never-synchronized sources, show the last successful sync/import, preserve it across failures, and show the latest failed attempt. Live sources become stale after 24 hours; XTB and Trading 212 Crypto remain explicitly labelled as imported statements. |
 | Goals, risk tolerance, and time horizon | Complete | Profile API and UI are functional. |
-| Basic portfolio summary | Complete | EUR total, position count, connected-source count, source allocation, and asset allocation are available on the overview. Historical performance presentation is deliberately deferred pending a more reliable data model and clearer UX. |
+| Basic portfolio summary | Complete | EUR total, position count, connected-source count, source allocation, asset allocation, and a responsive total-value/invested-amount history chart are available on the overview. Every fixed range remains selectable; observed daily snapshots and explicitly labelled reconstructed weekly estimates use distinct requested periods and show their actual available dates. |
 | Consolidated and per-platform holdings | Complete | A searchable responsive holdings page groups stocks/ETFs, crypto, cash, and other assets; supports value/open-P&L sorting; shows valuation freshness and source-native details; prioritizes provider-reported open P/L with fully reconciled calculations only as fallback; and links recent activity. Expanded detail reports average-cost realized gain, imported income, fees, and total return only where history coverage supports them. Metadata persistence exists, but category/tag/note/target controls are deliberately hidden to keep holding detail simple. |
 | Scalable source-management UI | Complete | Connected sources use compact management rows; a searchable/filterable directory separates live API connections from file imports and scales without one oversized setup card per provider. |
-| Transactions, daily history, and core performance | Partial | Unified filterable activity converts totals to EUR using stored dated ECB rates, falling back transparently to the latest fiat or crypto market rate when exact historical conversion is unavailable. A non-tax weighted-average ledger retains realized results across sales and reinvestment, separates open P/L, imported income, and fees, and marks incomplete transaction/FX coverage instead of publishing incomplete total returns. Daily-history, XIRR, TWR, and attribution backend foundations exist, but the overview chart and portfolio-level performance presentation are hidden until the history model and UX are redesigned. Advanced analytics remain roadmap items 35–42. |
+| Transactions, daily history, and core performance | Partial | Unified filterable activity converts totals to EUR using stored dated ECB rates, falling back transparently to the latest fiat or crypto market rate when exact historical conversion is unavailable. A non-tax weighted-average ledger retains realized results across sales and reinvestment, separates open P/L, imported income, and fees, and marks incomplete transaction/FX coverage instead of publishing incomplete total returns. Observed daily snapshots plus Alpha Vantage-backed weekly reconstruction power distinct 1W–all Overview ranges and two value/invested lines; reconstructed periods are visibly estimated. XIRR, TWR, and attribution backend foundations exist. |
+| Portfolio analytics workspace | Partial | A dedicated responsive page provides six current allocation dimensions, current open-P/L leaders and contribution, persisted cached-ETF benchmark selection, drawdown/volatility/concentration/diversification, and target drift/rebalancing arithmetic. Sector and geography prefer verified metadata and fall back to deterministic mappings for known symbols, industries, ETF mandates, and ISIN countries. Unknown classifications and incomplete long-range history remain visibly partial rather than guessed. Dividend analytics and ETF look-through were deliberately removed to keep this workspace focused. |
 | News and financial calendar | Planned | Finnhub interface and scheduler placeholder exist. |
 | AI recommendations and portfolio chat | Planned | Tables, provider shell, feature flags, and placeholder UI exist. |
 | Raspberry Pi deployment | Partial | Compose/nginx/health setup exists; production backup, monitoring, TLS-edge configuration validation, and restore testing remain. |

@@ -1,6 +1,6 @@
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 
 from sqlalchemy import func, select
@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.broker import BrokerConnection
 from app.models.enums import AssetType, Broker
 from app.models.instrument import Instrument, InstrumentAlias
+from app.models.market_data import FxRate, HistoricalPrice
 from app.models.portfolio import (
     HoldingMetadata,
     PortfolioSnapshot,
@@ -51,6 +52,12 @@ class SnapshotRow:
     snapshot: PortfolioSnapshot
     broker: Broker
     connection_id: uuid.UUID
+
+
+@dataclass(frozen=True, slots=True)
+class HistoricalPriceRow:
+    price: HistoricalPrice
+    instrument: Instrument
 
 
 class PortfolioRepository:
@@ -192,6 +199,47 @@ class PortfolioRepository:
             )
             for snapshot, connection in rows
         ]
+
+    async def historical_price_rows(
+        self, user_id: uuid.UUID, start_date: date | None, end_date: date
+    ) -> list[HistoricalPriceRow]:
+        instrument_ids = (
+            select(Position.canonical_instrument_id)
+            .join(BrokerConnection)
+            .where(
+                BrokerConnection.user_id == user_id,
+                Position.canonical_instrument_id.is_not(None),
+            )
+        )
+        query = (
+            select(HistoricalPrice, Instrument)
+            .join(Instrument, HistoricalPrice.instrument_id == Instrument.id)
+            .where(
+                HistoricalPrice.instrument_id.in_(instrument_ids),
+                HistoricalPrice.price_date <= end_date,
+            )
+            .order_by(HistoricalPrice.price_date.asc())
+        )
+        if start_date is not None:
+            query = query.where(HistoricalPrice.price_date >= start_date - timedelta(days=14))
+        rows = await self.db.execute(query)
+        return [
+            HistoricalPriceRow(price=price, instrument=instrument)
+            for price, instrument in rows
+        ]
+
+    async def historical_usd_eur_rates(
+        self, start_date: date | None, end_date: date
+    ) -> list[FxRate]:
+        query = select(FxRate).where(
+            FxRate.source == "ALPHA_VANTAGE",
+            FxRate.base_currency == "USD",
+            FxRate.quote_currency == "EUR",
+            FxRate.rate_date <= end_date,
+        )
+        if start_date is not None:
+            query = query.where(FxRate.rate_date >= start_date - timedelta(days=14))
+        return list(await self.db.scalars(query.order_by(FxRate.rate_date.asc())))
 
     async def holding_metadata(self, user_id: uuid.UUID) -> dict[str, HoldingMetadata]:
         rows = await self.db.scalars(

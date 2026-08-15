@@ -14,6 +14,7 @@ from app.models.enums import AssetType, TransactionType
 
 def _transport(
     invalid_credentials: bool = False,
+    earn_balance: bool = False,
     requests: list[httpx.Request] | None = None,
 ) -> httpx.MockTransport:
     def handler(request: httpx.Request) -> httpx.Response:
@@ -42,6 +43,11 @@ def _transport(
                     "balances": [
                         {"asset": "BTC", "free": "0.1", "locked": "0"},
                         {"asset": "EUR", "free": "100", "locked": "0"},
+                        *(
+                            [{"asset": "LDUSDC", "free": "25", "locked": "0"}]
+                            if earn_balance
+                            else []
+                        ),
                     ],
                 },
                 request=request,
@@ -63,6 +69,12 @@ def _transport(
                             "status": "TRADING",
                             "baseAsset": "ETH",
                             "quoteAsset": "EUR",
+                        },
+                        {
+                            "symbol": "USDCEUR",
+                            "status": "TRADING",
+                            "baseAsset": "USDC",
+                            "quoteAsset": "EUR",
                         }
                     ]
                 },
@@ -74,6 +86,7 @@ def _transport(
                 json=[
                     {"symbol": "BTCEUR", "price": "50000"},
                     {"symbol": "ETHEUR", "price": "2500"},
+                    {"symbol": "USDCEUR", "price": "0.92"},
                 ],
                 request=request,
             )
@@ -226,6 +239,22 @@ async def test_binance_activity_sync_overlaps_and_filters_previous_records() -> 
     ]
     assert signed_history_requests
     assert all("startTime" in request.url.params for request in signed_history_requests)
+
+
+@pytest.mark.asyncio
+async def test_binance_values_ldusdc_as_usdc_and_preserves_source_alias() -> None:
+    connector = BinanceConnector(
+        {"api_key": "test-key", "secret_key": "test-secret"},
+        transport=_transport(earn_balance=True),
+    )
+
+    positions = await connector.fetch_positions()
+    earn_position = next(item for item in positions if item.ticker == "LDUSDC")
+
+    assert earn_position.name == "USDC"
+    assert earn_position.canonical_symbol == "USDC"
+    assert earn_position.quantity == Decimal("25")
+    assert earn_position.current_value == Decimal("23.00")
 
 
 @pytest.mark.asyncio

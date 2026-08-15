@@ -46,6 +46,11 @@ class UserProfile(Base):
     goals: Mapped[str | None] = mapped_column(Text, nullable=True)
     risk_tolerance: Mapped[int | None] = mapped_column(Integer, nullable=True)
     time_horizon_years: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    benchmark_instrument_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("instruments.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
     user: Mapped[User] = relationship(back_populates="profile")
 

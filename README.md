@@ -15,14 +15,19 @@ rate-limit-aware retry/backoff, visible connection freshness, and
 the aggregated analytics dashboard are implemented. Canonical instruments combine equivalent holdings across
 brokers, while searchable Holdings and Activity views expose consolidated stock/ETF and
 crypto positions, provider-first open P/L, non-tax average-cost realized results, explicit
-history coverage, source detail, and filterable portfolio events. The overview currently prioritizes trustworthy current
-totals and allocation views; historical performance presentation is deferred while its
-data model and UX are redesigned.
+history coverage, source detail, and filterable portfolio events. The overview includes a
+responsive total-value/invested-amount chart. Observed snapshots are used where available;
+older ranges can be explicitly labelled as reconstructed estimates from imported trades,
+cached weekly market prices, and dated FX rates.
+The dedicated Analytics workspace adds allocation drill-downs, current P/L leaders and
+contribution, configurable ETF comparison, risk/concentration measures, and educational
+allocation targets without crowding Overview. Sector and geography use verified metadata
+first, followed by conservative local mappings for known instruments and identifiers.
 Binance and eToro both have automated
 contract coverage and successful real read-only account smoke tests.
 Trading 212 Crypto is supported through repeatable, deduplicated CSV imports because its
-separate Crypto account has no Public API. Advanced risk/income analytics, real estate,
-news, and AI remain planned or scaffolded.
+separate Crypto account has no Public API. Provider metadata coverage, advanced return
+attribution, real estate, news, and AI remain planned or progressive.
 
 See [PROJECT_REQUIREMENTS.md](PROJECT_REQUIREMENTS.md) for the product contract and
 [NORTHSTAR_ROADMAP.md](NORTHSTAR_ROADMAP.md) for the ticket-sized implementation
@@ -89,6 +94,8 @@ The main launch defaults are:
 | `EMAIL_VERIFICATION_TTL_HOURS` | `24` | Lifetime of a single-use verification link. |
 | `PORTFOLIO_SYNC_MINUTES` | `120` | Scheduled broker refresh interval. Keep it between 60 and 120 minutes for the initial deployment unless provider limits require a slower cadence. |
 | `SCHEDULER_ENABLED` | `true` | Runs portfolio and enabled content jobs in the API process. Disable it in tests or secondary API replicas. |
+| `ALPHA_VANTAGE_KEY` | empty | Enables cached weekly stock/ETF prices for reconstructed portfolio history. The backfill is paced and resumes daily within the free allowance. |
+| `BENCHMARKS_ENABLED` | `true` | Reports benchmark capability through the feature-status endpoint. Comparison still requires a cached ETF and Alpha Vantage data. |
 
 The 1–2 hour interval is a freshness target, not a real-time market-data promise. Trading
 212, Binance, and eToro all use the same scheduled/manual refresh workflow. Safe provider
@@ -224,9 +231,13 @@ available at `http://localhost:8000/docs`.
   Free-tier limits should be rechecked when that implementation begins.
 - OpenAI uses one app-level key and is disabled by default. Recommendation/chat output
   is designed to be cached per user and always carries a financial-advice disclaimer.
-- Benchmarks remain disabled by default. The requirements propose cached Alpha Vantage
-  daily ETF series as investable benchmark proxies, behind a replaceable provider
-  interface and subject to rechecking current terms and limits before implementation.
+- Alpha Vantage weekly stock/ETF and USD/EUR series are stored in a durable cache for
+  reconstructed pre-snapshot history. Requests are paced, largest holdings are filled
+  first, and unfinished coverage resumes on later daily runs within the free allowance.
+  Reconstructed chart periods are identified as estimates. The same paced cache now
+  enriches company sector/country metadata and powers the configurable ETF comparison.
+  A deterministic local resolver covers known symbols, industry terms, ETF mandates, and
+  ISIN country codes while leaving uncertain instruments unclassified.
 - APScheduler is appropriate for one Raspberry Pi API process. If the API is later
   replicated, move jobs to a dedicated worker or use a distributed scheduler so they
   do not execute once per replica.
@@ -238,7 +249,8 @@ available at `http://localhost:8000/docs`.
   and positive asset distributions. A versioned marker gives existing connections one
   initial activity backfill before overlap-safe incremental syncs. Binance requires a symbol
   for Spot trade history, so a fully sold-out asset with no current balance, transfer, or
-  income record cannot yet be discovered automatically. eToro imports the documented
+  income record cannot yet be discovered automatically. Binance `LDUSDC` Earn balances are
+  valued through USDC and consolidated under canonical USDC. eToro imports the documented
   aggregate portfolio, enriches holdings and snapshots with broker-reported P&L from the
   Real-account P&L endpoint, and imports current/historical opening activity plus closed-trade
   exits. The official API does not expose dividend-ledger activity. Reported P&L is retained in

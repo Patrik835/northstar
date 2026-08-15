@@ -77,6 +77,8 @@ This direction matches the strongest capabilities offered by mature trackers: ge
 - Trading 212 still needs real-account backfill verification, detailed data-quality reporting, and broader reconciliation tests.
 - Binance activity now covers current/transfer/income-discovered Spot pairs, completed
   deposits and withdrawals, trade and withdrawal fees, and positive asset distributions.
+  Internal `LDUSDC` Earn balances are valued through USDC and consolidated under USDC while
+  retaining the Binance alias.
   Binance's symbol-required trade endpoint still prevents automatic discovery of a fully
   sold-out asset with no current balance, transfer, income, or previously known record;
   deeper full-history reconciliation remains.
@@ -117,7 +119,7 @@ This direction matches the strongest capabilities offered by mature trackers: ge
   - Broker-reported prices for connected holdings.
   - ECB daily reference rates for FX; the ECB publishes rates each working day. See the [ECB exchange-rate data](https://data.ecb.europa.eu/key-figures/ecb-interest-rates-and-exchange-rates/exchange-rates).
   - Finnhub for company news and earnings.
-  - Alpha Vantage daily ETF price series as benchmark proxies, cached to remain within its free allowance. See the [Alpha Vantage documentation](https://www.alphavantage.co/documentation/) and [free-tier limits](https://www.alphavantage.co/support/).
+  - Alpha Vantage weekly equity and USD/EUR history, persisted and paced within its free allowance, for explicitly estimated pre-snapshot reconstruction; the same boundary may later provide benchmark proxies. See the [Alpha Vantage documentation](https://www.alphavantage.co/documentation/) and [free-tier limits](https://www.alphavantage.co/support/).
 - Make eToro a periodic live source for positions/value while retaining month-end snapshots. Its official API supports read-only portfolio access with API and user keys. See [eToro authentication](https://api-portal.etoro.com/getting-started/authentication).
 - Add API groups for holdings, transactions, history/performance, income, imports, manual assets, news, notifications, and assistant conversations.
 - Every response containing portfolio values must expose `as_of`, original currency, EUR value, and stale/estimated status.
@@ -162,20 +164,20 @@ All implementation tickets should target approximately 1–3 working days and in
 25. [x] Build a holdings API/page with search, value/P&L sorting, asset/platform grouping, and original/EUR values.
 26. [x] Build holding detail with quantity, cost/value/open-gain coverage, source accounts, valuation state, and recent activity; use broker-reported open P/L first and a fully reconciled trade calculation only as fallback.
 27. [x] Build a unified transaction/activity API and filterable page across date, source, instrument search, and transaction type.
-28. [deferred] Holding-metadata persistence exists, but categories, tags, notes, and target-allocation controls are intentionally hidden until they can add clear value without cluttering holding detail.
-29. [x] Build consolidated daily portfolio-history queries with 1M/3M/6M/1Y/all ranges and carry-forward values between source synchronization dates.
-30. [deferred] Redesign the total-value and net-invested-capital visualization after validating a more reliable history model; the first chart was removed from the overview.
+28. [partial] Categories, tags, and notes remain intentionally hidden to keep holding detail focused; target-allocation controls now live in Analytics with drift calculations.
+29. [x] Build consolidated portfolio-history queries with 1W/1M/3M/6M/1Y/5Y/all ranges, observed snapshot carry-forward, bounded chart samples, and explicitly estimated weekly pre-snapshot reconstruction from transactions, cached Alpha Vantage prices, and dated FX.
+30. [x] Show one simple responsive two-line total-value and invested-amount history chart on Overview. Observed invested amount is derived from provider-reported open P/L; reconstructed invested amount uses remaining average cost. Every range stays selectable and uses its requested period; 1Y is reduced to about 52 points, 5Y to 60, and all-time to at most 72.
 31. [partial] Money-weighted return/XIRR calculation exists in the backend, but overview presentation is deferred with the history redesign.
 32. [partial] Time-weighted return calculation exists in the backend, but overview presentation is deferred with the history redesign.
 33. [partial] Return attribution exists in the backend, but overview presentation is deferred with the history redesign; Activity totals are converted to EUR, with estimated-FX coverage identified when an exact historical rate is unavailable.
 34. [x] Add non-tax average-cost reporting that retains realized gain after sales and reinvestment, keeps broker-reported open P/L authoritative, separates imported income and fees, and withholds total return when transaction or FX coverage is incomplete.
-35. Add allocation charts by asset type, holding, broker, currency, sector, and geography.
-36. Add best/worst performers and contribution-to-return views.
-37. Add dividend history, yield metrics, monthly income chart, and projected income calendar.
-38. Add benchmark configuration and comparison using cached ETF proxies.
-39. Add drawdown, volatility, concentration, and diversification metrics.
-40. Add ETF look-through exposure when provider metadata is available.
-41. Add target-allocation drift and educational rebalancing calculations.
+35. [x] Add allocation analysis by asset type, holding, broker, currency, sector, and geography. Sector/geography prefer verified metadata, use deterministic canonical-symbol, descriptive, ETF-mandate, and ISIN fallbacks, and leave genuinely unknown instruments unclassified.
+36. [x] Add best/worst current open-P/L performers and portfolio-impact contribution views, with provider/calculated coverage retained.
+37. [removed] Dividend analytics were removed from Analytics by product decision. Imported dividends remain available in Activity and supported holding calculations.
+38. [x] Add persisted benchmark configuration and a same-capital/same-imported-cash-flow comparison using cached ETF prices converted to EUR.
+39. [partial] Add estimated drawdown and volatility from cash-flow-adjusted available history plus current concentration, effective-holdings, and diversification metrics. Reconstructed history and unresolved internal transfers remain explicitly partial.
+40. [removed] ETF look-through was removed by product decision to keep Analytics focused and avoid incomplete constituent coverage.
+41. [x] Add target-allocation editing, drift, target value, and educational add/reduce illustrations without presenting them as personalized advice.
 42. Add CSV export for holdings, transactions, performance, and income.
 
 ### Milestone 3 — News, Alerts, and Grounded AI

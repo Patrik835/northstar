@@ -456,7 +456,6 @@ export function HoldingsPage() {
           <small>{portfolio?.position_count ?? "—"} source positions</small>
         </article>
       </section>
-      {portfolio && <PortfolioPerformanceSummary portfolio={portfolio} />}
 
       <section className="panel holdings-panel" id="holdings-instruments">
         <div className="holdings-toolbar">
@@ -671,52 +670,6 @@ function HoldingPerformanceSummary({ holding }: { holding: ScopedHolding }) {
         <small>Total return</small>
         <strong className={totalReturn === null ? "unavailable" : performanceTone(totalReturn)}>
           {totalReturn === null ? "—" : signedMoney(totalReturn)}
-        </strong>
-      </div>
-    </section>
-  );
-}
-
-function PortfolioPerformanceSummary({ portfolio }: { portfolio: HoldingsResponse }) {
-  const performance = portfolio.performance;
-  const realized = performance.realized_pnl_eur === null
-    ? null
-    : Number(performance.realized_pnl_eur);
-  const income = Number(performance.income_eur);
-  const fees = Number(performance.fees_eur);
-  const totalReturn = performance.total_return_eur === null
-    ? null
-    : Number(performance.total_return_eur);
-  if (realized === null && income === 0 && fees === 0 && totalReturn === null) return null;
-
-  return (
-    <section className="portfolio-performance-summary" aria-label="All-time imported results">
-      <div className="performance-summary-heading">
-        <span>All-time imported results</span>
-        <small>
-          {performance.coverage === "complete"
-            ? "Complete transaction coverage"
-            : "Partial history · known amounts only"}
-        </small>
-      </div>
-      <div>
-        <small>{performance.coverage === "complete" ? "Realized P/L" : "Known realized P/L"}</small>
-        <strong className={realized === null ? "unavailable" : performanceTone(realized)}>
-          {realized === null ? "—" : signedMoney(realized)}
-        </strong>
-      </div>
-      <div>
-        <small>Imported income</small>
-        <strong>{eur.format(income)}</strong>
-      </div>
-      <div>
-        <small>Imported fees</small>
-        <strong>{fees ? `−${eur.format(fees)}` : eur.format(0)}</strong>
-      </div>
-      <div>
-        <small>Total return</small>
-        <strong className={totalReturn === null ? "unavailable" : performanceTone(totalReturn)}>
-          {totalReturn === null ? "Incomplete history" : signedMoney(totalReturn)}
         </strong>
       </div>
     </section>

@@ -39,6 +39,7 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-5-mini"
     news_enabled: bool = False
     finnhub_api_key: str | None = None
+    alpha_vantage_key: str | None = None
     benchmarks_enabled: bool = False
 
     scheduler_enabled: bool = True

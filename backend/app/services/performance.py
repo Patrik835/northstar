@@ -1,21 +1,55 @@
 import math
 import uuid
+from bisect import bisect_right
 from collections import defaultdict
 from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Literal
 
 from app.models.enums import TransactionType
-from app.repositories.portfolio import PortfolioRepository, SnapshotRow, TransactionRow
+from app.repositories.portfolio import (
+    HistoricalPriceRow,
+    PortfolioRepository,
+    SnapshotRow,
+    TransactionRow,
+)
 from app.schemas.performance import (
+    PerformanceRange,
     PortfolioHistoryPoint,
     PortfolioPerformanceResponse,
     ReturnAttribution,
     ReturnMetric,
 )
 
-PerformanceRange = Literal["1m", "3m", "6m", "1y", "all"]
-RANGE_DAYS: dict[str, int] = {"1m": 31, "3m": 92, "6m": 183, "1y": 366}
+Sampling = Literal[
+    "daily", "weekly_average", "monthly_average", "adaptive_average"
+]
+RANGE_DAYS: dict[str, int] = {
+    "1w": 6,
+    "1m": 30,
+    "3m": 91,
+    "6m": 182,
+    "1y": 365,
+    "5y": 1826,
+}
+SAMPLE_TARGETS: dict[PerformanceRange, int] = {
+    "1w": 7,
+    "1m": 31,
+    "3m": 13,
+    "6m": 26,
+    "1y": 52,
+    "5y": 60,
+    "all": 72,
+}
+SAMPLING_LABELS: dict[PerformanceRange, Sampling] = {
+    "1w": "daily",
+    "1m": "daily",
+    "3m": "weekly_average",
+    "6m": "weekly_average",
+    "1y": "weekly_average",
+    "5y": "monthly_average",
+    "all": "adaptive_average",
+}
 CENT = Decimal("0.01")
 
 
@@ -68,6 +102,167 @@ def _flow_value(row: TransactionRow) -> Decimal | None:
     return abs(value) if value is not None else None
 
 
+def _sample_history_points(
+    points: list[PortfolioHistoryPoint], selected_range: PerformanceRange
+) -> tuple[list[PortfolioHistoryPoint], Sampling]:
+    """Return a bounded chart series without changing performance calculations."""
+    target = SAMPLE_TARGETS[selected_range]
+    if len(points) <= target:
+        return points, "daily"
+
+    sampled: list[PortfolioHistoryPoint] = []
+    for bucket_index in range(target):
+        start = bucket_index * len(points) // target
+        end = (bucket_index + 1) * len(points) // target
+        bucket = points[start:end]
+        divisor = Decimal(len(bucket))
+        sampled.append(
+            PortfolioHistoryPoint(
+                date=bucket[-1].date,
+                total_value_eur=_round_money(
+                    sum((point.total_value_eur for point in bucket), Decimal(0))
+                    / divisor
+                ),
+                net_invested_eur=_round_money(
+                    sum((point.net_invested_eur for point in bucket), Decimal(0))
+                    / divisor
+                ),
+                invested_value_eur=_round_money(
+                    sum((point.invested_value_eur for point in bucket), Decimal(0))
+                    / divisor
+                ),
+            )
+        )
+    return sampled, SAMPLING_LABELS[selected_range]
+
+
+def _reconstruct_weekly_history(
+    prices: list[HistoricalPriceRow],
+    usd_eur_rates: list,
+    transactions: list[TransactionRow],
+    requested_start: date | None,
+    observed_start: date,
+    anchor: PortfolioHistoryPoint,
+) -> list[PortfolioHistoryPoint]:
+    recognized_transactions = [
+        row
+        for row in transactions
+        if row.instrument is not None
+        and row.transaction.transaction_type in {TransactionType.BUY, TransactionType.SELL}
+        and row.transaction.quantity
+    ]
+    if not prices or not recognized_transactions:
+        return []
+    earliest_trade = min(row.transaction.executed_at.date() for row in recognized_transactions)
+    reconstruction_start = max(requested_start or earliest_trade, earliest_trade)
+    price_dates = sorted(
+        {
+            row.price.price_date
+            for row in prices
+            if reconstruction_start <= row.price.price_date < observed_start
+        }
+    )
+    if not price_dates:
+        return []
+
+    prices_by_date: dict[date, list[HistoricalPriceRow]] = defaultdict(list)
+    for row in prices:
+        prices_by_date[row.price.price_date].append(row)
+    transactions_by_date: dict[date, list[TransactionRow]] = defaultdict(list)
+    for row in recognized_transactions:
+        transactions_by_date[row.transaction.executed_at.date()].append(row)
+
+    quantities: dict[uuid.UUID, Decimal] = defaultdict(Decimal)
+    costs: dict[uuid.UUID, Decimal] = defaultdict(Decimal)
+    latest_prices: dict[uuid.UUID, HistoricalPriceRow] = {}
+    latest_usd_eur: Decimal | None = None
+    rates_by_date = {row.rate_date: row.rate for row in usd_eur_rates}
+    transaction_dates = sorted(transactions_by_date)
+    transaction_index = 0
+    rate_dates = sorted(rates_by_date)
+    rate_index = 0
+    result: list[PortfolioHistoryPoint] = []
+
+    for point_date in price_dates:
+        while (
+            transaction_index < len(transaction_dates)
+            and transaction_dates[transaction_index] <= point_date
+        ):
+            trade_date = transaction_dates[transaction_index]
+            for row in transactions_by_date[trade_date]:
+                assert row.instrument is not None
+                instrument_id = row.instrument.id
+                item = row.transaction
+                quantity = abs(item.quantity or Decimal(0))
+                value = abs(item.value_eur) if item.value_eur is not None else None
+                if value is None and item.value is not None:
+                    currency = item.currency.upper()
+                    if currency == "EUR":
+                        value = abs(item.value)
+                    elif currency == "USD":
+                        rate_position = bisect_right(rate_dates, trade_date) - 1
+                        if rate_position >= 0:
+                            value = (
+                                abs(item.value)
+                                * rates_by_date[rate_dates[rate_position]]
+                            )
+                if item.transaction_type is TransactionType.BUY:
+                    quantities[instrument_id] += quantity
+                    if value is not None:
+                        costs[instrument_id] += value
+                elif quantity and quantities[instrument_id] > 0:
+                    sold = min(quantity, quantities[instrument_id])
+                    costs[instrument_id] -= costs[instrument_id] * sold / quantities[instrument_id]
+                    quantities[instrument_id] -= sold
+            transaction_index += 1
+        while rate_index < len(rate_dates) and rate_dates[rate_index] <= point_date:
+            latest_usd_eur = rates_by_date[rate_dates[rate_index]]
+            rate_index += 1
+        for row in prices_by_date[point_date]:
+            latest_prices[row.instrument.id] = row
+
+        total = Decimal(0)
+        invested = Decimal(0)
+        for instrument_id, quantity in quantities.items():
+            if quantity <= 0 or instrument_id not in latest_prices:
+                continue
+            price = latest_prices[instrument_id].price
+            if price.currency == "EUR":
+                eur_price = price.close_price
+            elif price.currency == "USD" and latest_usd_eur is not None:
+                eur_price = price.close_price * latest_usd_eur
+            else:
+                continue
+            total += quantity * eur_price
+            invested += max(Decimal(0), costs[instrument_id])
+        if total > 0:
+            result.append(
+                PortfolioHistoryPoint(
+                    date=point_date,
+                    total_value_eur=_round_money(total),
+                    net_invested_eur=_round_money(invested),
+                    invested_value_eur=_round_money(invested),
+                )
+            )
+    if not result or result[-1].total_value_eur <= 0:
+        return []
+    total_scale = anchor.total_value_eur / result[-1].total_value_eur
+    invested_scale = (
+        anchor.invested_value_eur / result[-1].invested_value_eur
+        if result[-1].invested_value_eur > 0
+        else Decimal(1)
+    )
+    return [
+        PortfolioHistoryPoint(
+            date=point.date,
+            total_value_eur=_round_money(point.total_value_eur * total_scale),
+            net_invested_eur=_round_money(point.net_invested_eur * invested_scale),
+            invested_value_eur=_round_money(point.invested_value_eur * invested_scale),
+        )
+        for point in result
+    ]
+
+
 class PerformanceService:
     def __init__(self, repository: PortfolioRepository) -> None:
         self.repository = repository
@@ -110,10 +305,15 @@ class PerformanceService:
             for connection_rows in by_connection.values()
         )
         end_date = max(row.snapshot.snapshot_date for row in snapshots)
+        requested_start = (
+            None
+            if selected_range == "all"
+            else end_date - timedelta(days=RANGE_DAYS[selected_range])
+        )
         start_date = (
             coverage_start
-            if selected_range == "all"
-            else max(coverage_start, end_date - timedelta(days=RANGE_DAYS[selected_range]))
+            if requested_start is None
+            else max(coverage_start, requested_start)
         )
 
         external_flows: dict[date, Decimal] = defaultdict(Decimal)
@@ -211,14 +411,41 @@ class PerformanceService:
                     ),
                     Decimal(0),
                 )
+                invested_value = sum(
+                    (
+                        row.snapshot.total_value_eur
+                        - (row.snapshot.reported_pnl_eur or Decimal(0))
+                        for row in latest_by_connection.values()
+                    ),
+                    Decimal(0),
+                )
                 points.append(
                     PortfolioHistoryPoint(
                         date=current_date,
                         total_value_eur=_round_money(total),
                         net_invested_eur=_round_money(invested),
+                        invested_value_eur=_round_money(invested_value),
                     )
                 )
             current_date += timedelta(days=1)
+
+        history_method: Literal["observed", "reconstructed"] = "observed"
+        price_loader = getattr(self.repository, "historical_price_rows", None)
+        rate_loader = getattr(self.repository, "historical_usd_eur_rates", None)
+        if price_loader is not None and rate_loader is not None and points:
+            historical_prices = await price_loader(user_id, requested_start, end_date)
+            historical_rates = await rate_loader(requested_start, end_date)
+            reconstructed = _reconstruct_weekly_history(
+                historical_prices,
+                historical_rates,
+                transactions,
+                requested_start,
+                coverage_start,
+                points[0],
+            )
+            if reconstructed:
+                points = reconstructed + points
+                history_method = "reconstructed"
 
         first_point = points[0]
         last_point = points[-1]
@@ -289,6 +516,11 @@ class PerformanceService:
             "Source values are carried forward between synchronization dates.",
             "Currency movement is an estimate based on each source's reported account currency.",
         ]
+        if history_method == "reconstructed":
+            notices.append(
+                "Earlier weekly values are reconstructed from imported trades, cached market "
+                "prices, and FX rates, then linked to the first observed portfolio valuation."
+            )
         if estimated_opening_sources:
             notices.append(
                 f"Opening capital is estimated for {estimated_opening_sources} source(s) "
@@ -296,11 +528,14 @@ class PerformanceService:
             )
         if missing_fx:
             notices.append(metric_message or "Some activity lacks EUR conversion.")
+        chart_points, sampling = _sample_history_points(points, selected_range)
         return PortfolioPerformanceResponse(
             range=selected_range,
             start_date=first_point.date,
             end_date=last_point.date,
-            points=points,
+            sampling=sampling,
+            history_method=history_method,
+            points=chart_points,
             money_weighted_return=ReturnMetric(
                 percentage=xirr_value,
                 status=status if xirr_value is not None else "unavailable",

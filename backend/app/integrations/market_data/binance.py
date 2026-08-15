@@ -4,6 +4,8 @@ from typing import Any
 
 import httpx
 
+from app.integrations.binance_assets import binance_valuation_asset
+
 
 class CryptoPriceError(RuntimeError):
     """Raised when public crypto market data cannot be loaded."""
@@ -23,7 +25,12 @@ class BinanceCryptoPriceProvider:
         return {
             asset: rate
             for asset in sorted(assets)
-            if (rate := self._conversion_rate(asset.upper())) is not None
+            if (
+                rate := self._conversion_rate(
+                    binance_valuation_asset(asset)
+                )
+            )
+            is not None
         }
 
     async def _get(self, path: str) -> Any:

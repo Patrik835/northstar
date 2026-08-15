@@ -1,11 +1,17 @@
 import logging
 
+from app.core.config import get_settings
 from app.core.database import SessionFactory
 from app.core.encryption import CredentialCipher
-from app.integrations.market_data import EcbFxRateProvider, FxRateError
+from app.integrations.market_data import (
+    AlphaVantageProvider,
+    EcbFxRateProvider,
+    FxRateError,
+)
 from app.models.enums import SyncTrigger
 from app.repositories.connections import ConnectionRepository
 from app.services.connection_sync import ConnectionSyncService
+from app.services.historical_market_data import HistoricalMarketDataService
 
 logger = logging.getLogger(__name__)
 
@@ -47,3 +53,19 @@ async def refresh_ecb_rates() -> None:
             logger.warning("Scheduled ECB exchange-rate refresh failed")
             return
     logger.info("Scheduled ECB exchange rates stored for %s", rate_date)
+
+
+async def refresh_historical_prices() -> None:
+    settings = get_settings()
+    if not settings.alpha_vantage_key:
+        return
+    async with SessionFactory() as db:
+        service = HistoricalMarketDataService(
+            db, AlphaVantageProvider(settings.alpha_vantage_key)
+        )
+        instruments, points = await service.refresh()
+    logger.info(
+        "Alpha Vantage weekly history refreshed for %d instruments (%d new points)",
+        instruments,
+        points,
+    )

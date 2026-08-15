@@ -28,6 +28,13 @@ class Instrument(Base):
         Enum(AssetType, native_enum=False, length=24), index=True
     )
     isin: Mapped[str | None] = mapped_column(String(12), unique=True, nullable=True)
+    sector: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
+    industry: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    country: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
+    metadata_source: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    metadata_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

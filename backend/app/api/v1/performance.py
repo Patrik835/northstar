@@ -14,9 +14,9 @@ router = APIRouter()
 async def performance(
     user: CurrentUser,
     db: DbSession,
-    selected_range: Literal["1m", "3m", "6m", "1y", "all"] = Query(
-        default="1y", alias="range"
-    ),
+    selected_range: Literal[
+        "1w", "1m", "3m", "6m", "1y", "5y", "all"
+    ] = Query(default="1y", alias="range"),
 ) -> PortfolioPerformanceResponse:
     return await PerformanceService(PortfolioRepository(db)).portfolio(
         user.id, selected_range

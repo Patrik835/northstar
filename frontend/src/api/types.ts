@@ -233,6 +233,7 @@ export type PortfolioHistoryPoint = {
   date: string;
   total_value_eur: string;
   net_invested_eur: string;
+  invested_value_eur: string;
 };
 
 export type ReturnMetric = {
@@ -242,10 +243,12 @@ export type ReturnMetric = {
 };
 
 export type PortfolioPerformance = {
-  range: "1m" | "3m" | "6m" | "1y" | "all";
+  range: "1w" | "1m" | "3m" | "6m" | "1y" | "5y" | "all";
   currency: "EUR";
   start_date: string | null;
   end_date: string | null;
+  sampling: "daily" | "weekly_average" | "monthly_average" | "adaptive_average";
+  history_method: "observed" | "reconstructed";
   points: PortfolioHistoryPoint[];
   money_weighted_return: ReturnMetric;
   time_weighted_return: ReturnMetric;
@@ -260,4 +263,84 @@ export type PortfolioPerformance = {
   };
   missing_fx_transaction_count: number;
   notices: string[];
+};
+
+export type AnalyticsCoverage = "available" | "partial" | "unavailable";
+
+export type AllocationBreakdown = {
+  dimension: "asset_type" | "holding" | "broker" | "currency" | "sector" | "geography";
+  items: AllocationItem[];
+  scope_value_eur: string;
+  covered_value_eur: string;
+  coverage_percentage: string;
+  status: AnalyticsCoverage;
+  message: string | null;
+};
+
+export type AnalyticsPerformer = {
+  holding_key: string;
+  symbol: string;
+  name: string;
+  current_value_eur: string;
+  open_pnl_eur: string;
+  open_pnl_percentage: string;
+  contribution_percentage_points: string;
+  source: "provider" | "calculated" | "mixed";
+};
+
+export type AnalyticsResponse = {
+  range: PortfolioPerformance["range"];
+  allocations: AllocationBreakdown[];
+  performance: {
+    best: AnalyticsPerformer[];
+    worst: AnalyticsPerformer[];
+    contributors: AnalyticsPerformer[];
+    coverage_percentage: string;
+    message: string;
+  };
+  benchmark: {
+    selected_instrument_id: string | null;
+    selected_symbol: string | null;
+    selected_name: string | null;
+    options: Array<{ instrument_id: string; symbol: string; name: string }>;
+    points: Array<{
+      date: string;
+      portfolio_return_percentage: string;
+      benchmark_return_percentage: string;
+    }>;
+    portfolio_return_percentage: string | null;
+    benchmark_return_percentage: string | null;
+    relative_return_percentage: string | null;
+    status: AnalyticsCoverage;
+    message: string;
+  };
+  risk: {
+    maximum_drawdown_percentage: string | null;
+    annualized_volatility_percentage: string | null;
+    largest_holding_percentage: string;
+    top_five_percentage: string;
+    concentration_hhi: string;
+    effective_holdings: string;
+    diversification_score: string;
+    observation_count: number;
+    status: AnalyticsCoverage;
+    message: string;
+  };
+  targets: {
+    target_total_percentage: string;
+    unallocated_percentage: string;
+    items: Array<{
+      holding_key: string;
+      symbol: string;
+      name: string;
+      current_percentage: string;
+      target_percentage: string | null;
+      drift_percentage_points: string | null;
+      current_value_eur: string;
+      target_value_eur: string | null;
+      difference_eur: string | null;
+      action: "add" | "reduce" | "on_target" | "not_set";
+    }>;
+    message: string;
+  };
 };
