@@ -128,7 +128,8 @@ export type Broker =
   | "interactive_brokers"
   | "xtb"
   | "trade_republic"
-  | "scalable_capital";
+  | "scalable_capital"
+  | "manual";
 
 export type Connection = {
   id: string;
@@ -178,6 +179,23 @@ export type StatementImportResult = {
 };
 
 export type AssetType = "stock" | "etf" | "crypto" | "cash" | "other";
+
+export type ManualPosition = {
+  id: string;
+  ticker: string;
+  name: string | null;
+  asset_type: "stock" | "etf" | "crypto";
+  quantity: string;
+  average_price: string | null;
+  current_price: string;
+  currency: string;
+  isin: string | null;
+  current_value: string;
+  current_value_eur: string;
+  open_pnl: string | null;
+  open_pnl_eur: string | null;
+  valued_at: string;
+};
 
 export type InvestmentPerformanceBreakdown = {
   cost_basis_eur: string | null;

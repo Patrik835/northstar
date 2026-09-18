@@ -18,6 +18,7 @@ class Broker(StrEnum):
     XTB = "xtb"
     TRADE_REPUBLIC = "trade_republic"
     SCALABLE_CAPITAL = "scalable_capital"
+    MANUAL = "manual"
 
 
 class ConnectionStatus(StrEnum):

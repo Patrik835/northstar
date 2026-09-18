@@ -52,7 +52,11 @@ class InstrumentResolver:
         if alias:
             instrument = await self.db.get(Instrument, alias.instrument_id)
             assert instrument is not None
-            self._refresh(instrument, alias, position)
+            alias.provider_symbol = position.ticker
+            alias.provider_name = position.name
+            alias.last_seen_at = datetime.now(timezone.utc)
+            if broker is not Broker.MANUAL:
+                self._enrich(instrument, position)
             return instrument
 
         instrument = await self._find_instrument(broker, position)
@@ -61,13 +65,13 @@ class InstrumentResolver:
             instrument = Instrument(
                 identity_key=identity_key(broker, position),
                 canonical_symbol=symbol,
-                name=position.name or symbol,
+                name=(symbol if broker is Broker.MANUAL else position.name or symbol),
                 asset_type=position.asset_type,
                 isin=valid_isin(position),
             )
             self.db.add(instrument)
             await self.db.flush()
-        else:
+        elif broker is not Broker.MANUAL:
             self._enrich(instrument, position)
 
         alias = InstrumentAlias(

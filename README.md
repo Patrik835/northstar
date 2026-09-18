@@ -2,13 +2,13 @@
 
 Northstar is a self-hosted, multi-user investment operating system for EU investors.
 It starts by consolidating stocks, ETFs, cash, and crypto across Trading 212, eToro,
-Binance, Interactive Brokers, and provider-native imports from Bybit, XTB, Trade Republic,
+Binance, Bybit EU, Interactive Brokers, and provider-native imports from XTB, Trade Republic,
 Scalable Capital, and Trading 212 Crypto. The longer-term
 product expands to manually valued real estate and other diversified investments while
 keeping portfolio data private, traceable, and understandable.
 
 The repository currently contains the application foundation and functional read-only
-connectors for Trading 212, Binance Spot, eToro, and Interactive Brokers. Public
+connectors for Trading 212, Binance Spot, Bybit EU, eToro, and Interactive Brokers. Public
 registration with email verification, authentication, encrypted and replaceable broker
 credentials, user profiles, scheduled and manual refresh, persisted ECB currency
 conversion, observable synchronization runs,
@@ -29,9 +29,8 @@ as authenticated CSV files directly from their relevant pages.
 All live connectors have automated contract coverage; Binance and eToro also have
 successful real read-only account smoke tests. Interactive Brokers still needs an
 equivalent real-account smoke test.
-Bybit, Trading 212 Crypto, Trade Republic, and Scalable Capital are supported through
-repeatable, deduplicated native file imports where a safe supported retail investment API
-is unavailable.
+Trading 212 Crypto, Trade Republic, and Scalable Capital are supported through repeatable,
+deduplicated native file imports where a safe supported retail investment API is unavailable.
 Provider metadata coverage, advanced return attribution, real estate, and broader market
 coverage remain planned or progressive. News, alerts, optional digests, cached grounded
 reviews, and tenant-scoped portfolio chat are implemented behind provider feature flags.
@@ -342,13 +341,13 @@ available at `http://localhost:8000/docs`.
   replacement, and immediately synchronizes the existing connection. Saved secret values
   are never returned to or prefilled in the browser.
 - Secrets are accepted only by the backend and returned only as masked hints.
-- Binance is modeled as read-only and its connection guide explicitly tells users to
-  disable trading and withdrawals. Interactive Brokers uses a reporting-only
+- Binance and Bybit EU are modeled as read-only, and their connection guides explicitly
+  tell users to disable trading and withdrawals. Interactive Brokers uses a reporting-only
   Flex token and never asks for the account password.
-- Bybit, Trading 212 Crypto, Trade Republic, and Scalable Capital imports never request
-  broker login credentials. Uploaded files are parsed in memory and normalized records are
-  stored under the authenticated user. A first Bybit statement import also replaces any
-  obsolete stored Bybit API credentials from an older deployment.
+- Trading 212 Crypto, Trade Republic, and Scalable Capital imports never request broker
+  login credentials. Uploaded files are parsed in memory and normalized records are stored
+  under the authenticated user. The legacy Bybit statement endpoint remains available only
+  for compatibility with earlier deployments.
 - Every repository query taking portfolio/connection data includes the authenticated
   `user_id`. Admin APIs are separately guarded.
 
@@ -393,7 +392,7 @@ available at `http://localhost:8000/docs`.
   exits. The official API does not expose dividend-ledger activity. Reported P&L is retained in
   its provider currency and converted to EUR without presenting it as an app-calculated
   return. All
-  four intraday live connectors refresh every 1–2 hours, eToro receives an additional
+  five intraday live connectors refresh every 1–2 hours, eToro receives an additional
   month-end synchronization, and Interactive Brokers Activity Flex refreshes daily.
 - ECB daily reference rates are fetched and cached in each synchronization process for
   EUR aggregation, persisted by ECB publication date, and reused across processes. A
@@ -413,8 +412,8 @@ available at `http://localhost:8000/docs`.
   provider response bodies to users.
 - XTB is a manual native-report source because its API is discontinued. CSV/XLSX imports
   retain the report valuation time and are not included in automatic **Sync all** runs.
-- Bybit is a manual native-export source because Bybit EU restricts API keys to approved
-  third-party applications. It accepts Account Change Details and Spot Trade History in
-  CSV/XLSX, deduplicates overlapping exports, and is excluded from **Sync all**.
+- Bybit EU uses the official V5 API with a system-generated HMAC key. Northstar requires a
+  read-only key, synchronizes Unified and Funding balances plus recent Spot activity, and
+  includes it in **Sync all**. The old CSV/XLSX endpoint is retained only for compatibility.
 - Trade Republic and Scalable Capital are native transaction-CSV sources. They are excluded
   from automatic **Sync all** runs and show last-trade valuations as estimates.

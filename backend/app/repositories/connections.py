@@ -15,7 +15,10 @@ class ConnectionRepository:
     async def for_user(self, user_id: uuid.UUID) -> list[BrokerConnection]:
         result = await self.db.scalars(
             select(BrokerConnection)
-            .where(BrokerConnection.user_id == user_id)
+            .where(
+                BrokerConnection.user_id == user_id,
+                BrokerConnection.broker != Broker.MANUAL,
+            )
             .order_by(BrokerConnection.created_at)
         )
         return list(result)

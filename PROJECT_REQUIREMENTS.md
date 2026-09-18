@@ -61,8 +61,8 @@ required outcome of each product phase.
 
 ### Phase 1 — Trustworthy Stock, ETF, and Crypto Core
 
-- Production-ready Trading 212, Binance Spot, eToro, and Interactive Brokers read-only
-  connections, plus provider-native imports for Bybit, XTB, Trade Republic, and Scalable
+- Production-ready Trading 212, Binance Spot, Bybit EU, eToro, and Interactive Brokers
+  read-only connections, plus provider-native imports for XTB, Trade Republic, and Scalable
   Capital where no safe supported retail investment API is available.
 - Periodic position/value synchronization every 60–120 minutes, defaulting to 120
   minutes, plus user-triggered refresh.
@@ -271,17 +271,19 @@ errors; provider-specific payloads do not leak into route handlers or the fronte
 
 ### 6.5 Bybit
 
-- Do not request API credentials while Bybit EU limits API connections to approved
-  third-party applications.
-- Accept multiple native Account Change Details, Spot Trade History, and funding-history
-  CSV files together; also accept equivalent XLSX sheets without user conversion.
-- Deduplicate repeated and overlapping exports using provider transaction/trade IDs.
-- Prefer exported per-asset cash balances for quantities. When they are absent, reconstruct
-  holdings from activity and label the result as estimated.
-- Import Spot buys/sells, fees, deposits, withdrawals, and supported income; value current
-  crypto holdings in EUR through the shared public market-rate service.
-- The first statement import replaces any obsolete encrypted Bybit API key retained from
-  an earlier application version.
+- Use Bybit EU's official V5 REST API at `https://api.bybit.eu` with a system-generated
+  HMAC API key and secret.
+- Accept only keys reported by Bybit as read-only. Never expose or implement order,
+  trading, or withdrawal operations.
+- Import non-zero Unified and Funding balances, value them through Bybit's USD valuation
+  or public Spot market rates, and convert the normalized result to EUR through shared FX.
+- Import Spot executions and their fees plus completed deposits and withdrawals over the
+  provider's documented time windows. Use stable provider IDs and overlap-safe incremental
+  synchronization, with a bounded 90-day initial activity backfill.
+- Synchronize on the intraday live-connector schedule and show permission/history failures
+  as safe connection errors or partial-sync warnings.
+- Retain the native CSV/XLSX parser and endpoint only as a backward-compatible migration
+  path; new connections use API credentials.
 
 ### 6.6 Interactive Brokers
 
@@ -497,14 +499,14 @@ Status meanings:
 | Multiple labelled accounts per provider | Deferred | Launch intentionally permits one connection per user/provider. Revisit only after demonstrated demand. |
 | Trading 212 current positions, cash, recent activity, and snapshot | Partial | Live connector, canonical instruments with provider-verified stock/ETF types, per-position and snapshot unrealized P/L, EUR conversion, source-total reconciliation, rate-limit-aware retry, paginated orders/dividends/cash history, resumable per-stream cursors, and idempotency coverage work. Real-account backfill verification remains. |
 | Binance Spot connector | Partial | Signed read-only authentication, Spot balances, EUR valuation, discoverable Spot-pair trades, trade/withdrawal fees, completed deposits/withdrawals, asset distributions, stable deduplication, one-time upgrade backfill, snapshots, refresh/scheduling, and mocked contracts exist. Real-account reconciliation and Binance's symbol-constrained fully sold-out/full-history gap remain. |
-| Bybit native file import | Complete | API-key setup is removed for EU compatibility. Multiple native Account Change Details, Spot Trade History, and funding-history CSV/XLSX files can be uploaded together; provider IDs make overlapping imports safe. Exported balances are preferred, activity-only holdings are visibly estimated, current crypto values use shared EUR market conversion, and an import erases obsolete stored Bybit API credentials. Derivatives and PDF account statements remain out of scope. |
+| Bybit EU connector | Partial | Signed read-only V5 authentication, Unified and Funding balances, USD/Spot valuation, Spot executions and fees, completed deposits/withdrawals, stable deduplication, bounded initial history, snapshots, refresh/scheduling, and mocked contracts are implemented against `api.bybit.eu`. The legacy native CSV/XLSX importer remains as a compatibility path. Real-account verification and broader Bybit product/history coverage remain. |
 | Interactive Brokers connector | Partial | Reporting-only Flex token authentication, bounded report generation/retrieval, XML positions/cash/average cost/P&L, trades/commissions/dividends/cash movements, canonical IDs, independent NAV, daily scheduling, 48-hour freshness, and mocked contracts are implemented. A real-account Flex Query smoke test and coverage across all IBKR asset/report variants remain. |
 | eToro periodic connector and month-end history | Partial | Public API authentication, aggregate positions/cash/copy value, instrument metadata, dedicated Real-account P&L enrichment, provider/EUR P&L persistence, source-total reconciliation, current and historical opening buys, closed-trade exits, valuations, versioned backfill, manual/periodic/month-end sync, and mocked contracts exist. The official API does not expose a dividend ledger; broader history reconciliation and exact coverage of every eToro product remain. |
 | Provider-specific file data | Complete | Trading 212 Crypto CSV, native XTB CSV/XLSX, and native Trade Republic/Scalable Capital transaction CSV imports validate atomically, prevent duplicate activity, preserve valuation provenance, and support repeat imports. XTB supplies current position/P&L data; Trade Republic and Scalable rebuild holdings and clearly mark last-trade valuations as estimates. Generic stock/crypto files and manual entry remain intentionally out of scope. |
 | Canonical instruments and broker aliases | Complete | Global instruments retain ISIN/symbol identity while provider aliases preserve Trading 212 Invest, Trading 212 Crypto, Binance, Bybit, Interactive Brokers, eToro, XTB, Trade Republic, and Scalable Capital identifiers. Sync/import resolution combines matching securities and crypto across platforms. |
-| Automatic data-quality and reconciliation | Partial | Trading 212, Interactive Brokers, and eToro synchronization silently compare imported holdings against independently reported provider totals and warn only beyond both 3% and EUR 5. Binance has no independent comparison total; Bybit and Trading 212 Crypto overlap deduplication remains automatic. Broader transaction-level reconciliation remains. |
+| Automatic data-quality and reconciliation | Partial | Trading 212, Interactive Brokers, and eToro synchronization silently compare imported holdings against independently reported provider totals and warn only beyond both 3% and EUR 5. Binance and Bybit have no independent comparison total; overlap deduplication remains automatic. Broader transaction-level reconciliation remains. |
 | FX conversion and historical market-data cache | Complete | ECB working-day rates are fetched, persisted by publication date, cached in-process and across processes, looked up by date, converted through EUR, and backed by the newest stored rate set during temporary ECB failures. Alpha Vantage weekly equity and USD/EUR series are persisted for reconstructed history; calls are paced, stop cleanly on provider limits, prioritize larger holdings, and resume on daily runs. |
-| Scheduled synchronization | Partial | APScheduler refreshes Trading 212, Binance, and eToro every 120 minutes by default, runs Interactive Brokers Flex daily, and adds eToro month-end and daily ECB runs. Bybit is updated only through native file imports. Connection syncs persist running/success/partial/error status, triggers, counts, timestamps, and safe details. Safe GET requests use bounded exponential backoff for transient failures and honor provider cooldown headers; stuck-run recovery and distributed-worker safety remain. |
+| Scheduled synchronization | Partial | APScheduler refreshes Trading 212, Binance, Bybit, and eToro every 120 minutes by default, runs Interactive Brokers Flex daily, and adds eToro month-end and daily ECB runs. Connection syncs persist running/success/partial/error status, triggers, counts, timestamps, and safe details. Safe GET requests use bounded exponential backoff for transient failures and honor provider cooldown headers; stuck-run recovery and distributed-worker safety remain. |
 | Connection freshness visibility | Complete | Connection cards distinguish fresh, stale, and never-synchronized sources, show the last successful sync/import, preserve it across failures, and show the latest failed attempt. Intraday live sources become stale after 24 hours and daily IBKR data after 48 hours; XTB, Trading 212 Crypto, Trade Republic, and Scalable Capital remain explicitly labelled as imported statements. |
 | Goals, risk tolerance, and time horizon | Complete | Profile API and UI are functional. |
 | Basic portfolio summary | Complete | EUR total, position count, connected-source count, source allocation, asset allocation, and a responsive total-value/invested-amount history chart are available on the overview. Every fixed range remains selectable; observed daily snapshots and explicitly labelled reconstructed weekly estimates use distinct requested periods and show their actual available dates. |

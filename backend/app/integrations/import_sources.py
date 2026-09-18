@@ -26,41 +26,6 @@ class ImportSourceDefinition:
 
 IMPORT_SOURCES = (
     ImportSourceDefinition(
-        broker=Broker.BYBIT,
-        display_name="Bybit",
-        short_mark="BY",
-        category="Crypto exchange",
-        description=(
-            "Import balances, Spot trades, transfers, income, and fees from Bybit's "
-            "native account-data exports."
-        ),
-        security_notice=(
-            "Northstar reads only the files you select. No Bybit API key, password, "
-            "or third-party approval is required."
-        ),
-        setup_steps=(
-            "On the Bybit website, open Account → Data Export.",
-            "Export Unified Trading Account Change Details for the full available period.",
-            "Also export Spot Trade History so buys, sells, prices, and fees are included.",
-            "Upload the CSV files together. XLSX versions and overlapping yearly exports "
-            "are also accepted.",
-        ),
-        tutorial_url=(
-            "https://www.bybit.com/en/help-center/article/How-to-Self-Export-Account-Data"
-        ),
-        endpoint="/connections/imports/bybit",
-        accept=(
-            ".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        ),
-        multiple=True,
-        prompt="Select Bybit exports",
-        help_text=(
-            "CSV or XLSX · select Account Change Details and Spot Trade History together"
-        ),
-        empty_file_message="Choose at least one Bybit CSV or XLSX export first.",
-        holding_label="crypto holding",
-    ),
-    ImportSourceDefinition(
         broker=Broker.TRADING212_CRYPTO,
         display_name="Trading 212 Crypto",
         short_mark="2C",

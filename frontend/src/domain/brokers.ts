@@ -40,6 +40,7 @@ export const brokerMetadata: Record<Broker, BrokerMetadata> = {
     shortMark: "SC",
     logo: scalableCapitalLogo,
   },
+  manual: { name: "Manual", shortMark: "M" },
 };
 
 export const brokers = Object.keys(brokerMetadata) as Broker[];

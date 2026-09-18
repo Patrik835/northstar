@@ -4,6 +4,7 @@ from typing import Literal
 
 from app.integrations.connectors.base import BrokerConnector
 from app.integrations.connectors.binance import BinanceConnector
+from app.integrations.connectors.bybit import BybitConnector
 from app.integrations.connectors.etoro import EtoroConnector
 from app.integrations.connectors.interactive_brokers import InteractiveBrokersConnector
 from app.integrations.connectors.trading212 import Trading212Connector
@@ -130,6 +131,40 @@ DEFAULT_CONNECTORS = (
         ),
         valuation_source="market",
         initial_activity_cursor="binance-activity-v1",
+    ),
+    ConnectorDefinition(
+        broker=Broker.BYBIT,
+        display_name="Bybit EU",
+        short_mark="BY",
+        factory=BybitConnector,
+        credentials=(
+            CredentialField("api_key", "API key"),
+            CredentialField("secret_key", "API secret"),
+        ),
+        category="Crypto exchange",
+        description=(
+            "Automatically synchronize Unified and Funding balances, Spot trades, "
+            "deposits, withdrawals, and fees."
+        ),
+        security_notice=(
+            "Use a read-only Bybit EU key. Northstar rejects keys that can trade; "
+            "never enable withdrawals."
+        ),
+        setup_steps=(
+            "On bybit.eu, open Profile → API and select Create New Key.",
+            "Choose a system-generated HMAC key and API Transaction.",
+            "Set the key to Read-Only. Under Unified Trading enable Spot Trading, and "
+            "under Assets enable Account Transfer; in Read-Only mode these expose balances "
+            "and history but cannot trade or transfer funds.",
+            "Copy the API Key and API Secret; the secret is shown only once.",
+            "If you restrict the key by IP, allow the public IP address of this server.",
+        ),
+        tutorial_url=(
+            "https://www.bybit.eu/en-EU/learn/bybit-guide/"
+            "what-is-api-trading-and-how-to-set-it-up-on-bybit-eu"
+        ),
+        valuation_source="market",
+        initial_activity_cursor="bybit-eu-activity-v1",
     ),
     ConnectorDefinition(
         broker=Broker.INTERACTIVE_BROKERS,

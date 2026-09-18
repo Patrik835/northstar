@@ -16,8 +16,8 @@ async def test_connection_guides_are_built_from_connector_catalogs() -> None:
         Broker.TRADING212,
         Broker.ETORO,
         Broker.BINANCE,
-        Broker.INTERACTIVE_BROKERS,
         Broker.BYBIT,
+        Broker.INTERACTIVE_BROKERS,
         Broker.TRADING212_CRYPTO,
         Broker.XTB,
         Broker.TRADE_REPUBLIC,
@@ -25,7 +25,9 @@ async def test_connection_guides_are_built_from_connector_catalogs() -> None:
     ]
     assert by_broker[Broker.ETORO].credential_fields == ["api_key", "user_key"]
     assert by_broker[Broker.ETORO].file_import is None
-    assert by_broker[Broker.BYBIT].sync_frequency_label is None
+    assert by_broker[Broker.BYBIT].credential_fields == ["api_key", "secret_key"]
+    assert by_broker[Broker.BYBIT].file_import is None
+    assert by_broker[Broker.BYBIT].sync_frequency_label == "Every 1–2 hours"
     assert by_broker[Broker.INTERACTIVE_BROKERS].sync_frequency_label == "Daily"
 
     xtb_import = by_broker[Broker.XTB].file_import
@@ -33,12 +35,6 @@ async def test_connection_guides_are_built_from_connector_catalogs() -> None:
     assert xtb_import.endpoint == "/connections/imports/xtb"
     assert xtb_import.multiple is True
     assert ".xlsx" in xtb_import.accept
-
-    bybit_import = by_broker[Broker.BYBIT].file_import
-    assert bybit_import is not None
-    assert bybit_import.endpoint == "/connections/imports/bybit"
-    assert bybit_import.multiple is True
-    assert ".xlsx" in bybit_import.accept
 
     trade_republic_import = by_broker[Broker.TRADE_REPUBLIC].file_import
     assert trade_republic_import is not None

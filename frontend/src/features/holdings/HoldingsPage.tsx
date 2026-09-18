@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type { FormEvent } from "react";
 import { api } from "../../api/client";
 import type {
   ActivityResponse,
@@ -7,6 +8,7 @@ import type {
   Holding,
   HoldingSource,
   HoldingsResponse,
+  ManualPosition,
 } from "../../api/types";
 import { EmptyState } from "../../components/EmptyState";
 import { CsvDownloadButton } from "../../components/CsvDownloadButton";
@@ -68,6 +70,7 @@ function timestamp(value: string | null) {
 }
 
 function valuationLabel(source: HoldingSource) {
+  if (source.valuation_source === "manual") return "Manual valuation";
   if (source.valuation_source === "last_trade") return "Estimated from last trade";
   if (source.valuation_source === "market") return "Market price";
   if (source.valuation_source === "statement") return "Imported statement";
@@ -85,14 +88,18 @@ type PnlSummary = {
 
 type SourcePnl = {
   valueEur: number;
-  kind: "calculated" | "reported";
+  kind: "calculated" | "reported" | "manual";
 };
 
 function preferredSourcePnl(source: HoldingSource): SourcePnl | null {
   if (source.performance.open_pnl_eur === null) return null;
   return {
     valueEur: Number(source.performance.open_pnl_eur),
-    kind: source.performance.open_pnl_source === "calculated" ? "calculated" : "reported",
+    kind: source.valuation_source === "manual"
+      ? "manual"
+      : source.performance.open_pnl_source === "calculated"
+        ? "calculated"
+        : "reported",
   };
 }
 
@@ -190,7 +197,13 @@ function SourcePnlMetric({ source }: { source: HoldingSource }) {
             : signedMoney(pnl.valueEur)}
         </span>
         {secondary && <small>{secondary}</small>}
-        <small>{pnl.kind === "calculated" ? "Calculated from trades" : "Reported by broker"}</small>
+        <small>
+          {pnl.kind === "manual"
+            ? "Calculated from your manual prices"
+            : pnl.kind === "calculated"
+              ? "Calculated from trades"
+              : "Reported by broker"}
+        </small>
       </dd>
     </div>
   );
@@ -205,12 +218,87 @@ export function HoldingsPage() {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>("value");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
+  const [manualEditor, setManualEditor] = useState<{
+    id: string | null;
+    source: HoldingSource | null;
+    assetType: "stock" | "etf" | "crypto";
+  } | null>(null);
+  const [manualError, setManualError] = useState("");
+  const [manualNotice, setManualNotice] = useState("");
+  const [savingManual, setSavingManual] = useState(false);
 
-  useEffect(() => {
-    api<HoldingsResponse>("/holdings")
+  const loadPortfolio = useCallback(() => {
+    return api<HoldingsResponse>("/holdings")
       .then(setPortfolio)
       .catch((reason: Error) => setError(reason.message));
   }, []);
+
+  useEffect(() => {
+    void loadPortfolio();
+  }, [loadPortfolio]);
+
+  function openManualCreate() {
+    setManualError("");
+    setManualEditor({ id: null, source: null, assetType: "stock" });
+  }
+
+  function openManualEdit(source: HoldingSource, assetType: AssetType) {
+    if (source.broker !== "manual") return;
+    setManualError("");
+    setManualEditor({
+      id: source.provider_instrument_id.replace(/^MANUAL:/, ""),
+      source,
+      assetType: assetType === "etf" || assetType === "crypto" ? assetType : "stock",
+    });
+  }
+
+  async function submitManual(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!manualEditor) return;
+    setSavingManual(true);
+    setManualError("");
+    const form = new FormData(event.currentTarget);
+    const averagePrice = String(form.get("average_price") ?? "").trim();
+    const isin = String(form.get("isin") ?? "").trim();
+    const payload = {
+      ticker: String(form.get("ticker") ?? ""),
+      name: String(form.get("name") ?? "") || null,
+      asset_type: String(form.get("asset_type") ?? "stock"),
+      quantity: String(form.get("quantity") ?? ""),
+      average_price: averagePrice || null,
+      current_price: String(form.get("current_price") ?? ""),
+      currency: String(form.get("currency") ?? "EUR"),
+      isin: isin || null,
+    };
+    try {
+      await api<ManualPosition>(
+        manualEditor.id ? `/holdings/manual/${manualEditor.id}` : "/holdings/manual",
+        {
+          method: manualEditor.id ? "PUT" : "POST",
+          body: JSON.stringify(payload),
+        },
+      );
+      setManualNotice(manualEditor.id ? "Manual position updated." : "Manual position added.");
+      setManualEditor(null);
+      await loadPortfolio();
+    } catch (reason) {
+      setManualError(reason instanceof Error ? reason.message : "Could not save position");
+    } finally {
+      setSavingManual(false);
+    }
+  }
+
+  async function deleteManual(source: HoldingSource) {
+    const id = source.provider_instrument_id.replace(/^MANUAL:/, "");
+    if (!window.confirm(`Delete the manual ${source.provider_symbol} position?`)) return;
+    try {
+      await api(`/holdings/manual/${id}`, { method: "DELETE" });
+      setManualNotice("Manual position deleted.");
+      await loadPortfolio();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Could not delete position");
+    }
+  }
 
   const selectedTotal = useMemo(() => {
     if (!portfolio) return 0;
@@ -382,7 +470,12 @@ export function HoldingsPage() {
           </p>
         </div>
         <div className="page-header-actions">
-          <CsvDownloadButton path={exportPath} disabled={!portfolio} />
+          <div className="holdings-header-buttons">
+            <button type="button" className="secondary" onClick={openManualCreate}>
+              Add manual position
+            </button>
+            <CsvDownloadButton path={exportPath} disabled={!portfolio} />
+          </div>
           <span className={`as-of holdings-as-of${staleConnectionCount ? " stale" : ""}`}>
             <span className="freshness-dot" />
             <span>
@@ -399,6 +492,7 @@ export function HoldingsPage() {
       </header>
 
       {error && <p className="error">{error}</p>}
+      {manualNotice && <p className="notice">{manualNotice}</p>}
       {reconciliationWarnings.map((warning) => (
         <p className="holdings-warning reconciliation-warning" key={warning.connection_id}>
           <strong>Source total needs attention.</strong> {warning.message}
@@ -600,7 +694,13 @@ export function HoldingsPage() {
                     </span>
                     <span className="expand-mark">{isOpen ? "−" : "+"}</span>
                   </button>
-                  {isOpen && <HoldingDetails holding={holding} />}
+                  {isOpen && (
+                    <HoldingDetails
+                      holding={holding}
+                      onEditManual={openManualEdit}
+                      onDeleteManual={deleteManual}
+                    />
+                  )}
                 </article>
               );
             })}
@@ -616,6 +716,133 @@ export function HoldingsPage() {
           <div className="holdings-loading">Loading your consolidated portfolio…</div>
         )}
       </section>
+
+      {manualEditor && (
+        <div className="modal-backdrop" onMouseDown={() => setManualEditor(null)}>
+          <form
+            className="modal manual-position-modal"
+            onSubmit={submitManual}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div>
+              <p className="eyebrow">Manual valuation</p>
+              <h2>{manualEditor.id ? "Edit position" : "Add a position"}</h2>
+              <p className="muted manual-position-intro">
+                Use this for an asset you cannot connect or export. Update the current price
+                whenever its value changes.
+              </p>
+            </div>
+            <div className="manual-position-grid">
+              <label>
+                Asset type
+                <select
+                  name="asset_type"
+                  defaultValue={manualEditor.assetType}
+                  required
+                >
+                  <option value="stock">Stock</option>
+                  <option value="etf">ETF</option>
+                  <option value="crypto">Crypto</option>
+                </select>
+              </label>
+              <label>
+                Ticker or symbol
+                <input
+                  name="ticker"
+                  defaultValue={manualEditor.source?.provider_symbol ?? ""}
+                  placeholder="AAPL or BTC"
+                  maxLength={32}
+                  required
+                />
+              </label>
+              <label className="manual-wide-field">
+                Name <small className="label-hint">optional</small>
+                <input
+                  name="name"
+                  defaultValue={manualEditor.source?.provider_name ?? ""}
+                  placeholder="Apple Inc."
+                  maxLength={200}
+                />
+              </label>
+              <label>
+                Quantity
+                <input
+                  name="quantity"
+                  type="number"
+                  min="0"
+                  step="any"
+                  defaultValue={manualEditor.source?.quantity ?? ""}
+                  placeholder="2.5"
+                  required
+                />
+              </label>
+              <label>
+                Currency
+                <input
+                  name="currency"
+                  defaultValue={manualEditor.source?.currency ?? "EUR"}
+                  placeholder="EUR"
+                  minLength={3}
+                  maxLength={3}
+                  required
+                />
+              </label>
+              <label>
+                Average purchase price <small className="label-hint">optional, per unit</small>
+                <input
+                  name="average_price"
+                  type="number"
+                  min="0"
+                  step="any"
+                  defaultValue={manualEditor.source?.average_price ?? ""}
+                  placeholder="100.00"
+                />
+              </label>
+              <label>
+                Current price <small className="label-hint">per unit</small>
+                <input
+                  name="current_price"
+                  type="number"
+                  min="0"
+                  step="any"
+                  defaultValue={
+                    manualEditor.source
+                      ? String(
+                        Number(manualEditor.source.current_value)
+                        / Number(manualEditor.source.quantity),
+                      )
+                      : ""
+                  }
+                  placeholder="125.00"
+                  required
+                />
+              </label>
+              <label className="manual-wide-field">
+                ISIN <small className="label-hint">optional for stocks and ETFs</small>
+                <input
+                  name="isin"
+                  defaultValue={manualEditor.source?.canonical_isin ?? ""}
+                  placeholder="US0378331005"
+                  maxLength={12}
+                />
+              </label>
+            </div>
+            <p className="manual-value-note">
+              Portfolio value = quantity × current price. Manual prices are clearly labelled
+              and are not refreshed automatically.
+            </p>
+            {manualError && <p className="connection-error" role="alert">{manualError}</p>}
+            <div className="button-row">
+              <button type="button" className="text-button" onClick={() => setManualEditor(null)}>
+                Cancel
+              </button>
+              <button type="submit" className="primary" disabled={savingManual}>
+                {savingManual ? "Saving…" : manualEditor.id ? "Save changes" : "Add position"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </>
   );
 }
@@ -677,7 +904,15 @@ function HoldingPerformanceSummary({ holding }: { holding: ScopedHolding }) {
   );
 }
 
-function HoldingDetails({ holding }: { holding: ScopedHolding }) {
+function HoldingDetails({
+  holding,
+  onEditManual,
+  onDeleteManual,
+}: {
+  holding: ScopedHolding;
+  onEditManual: (source: HoldingSource, assetType: AssetType) => void;
+  onDeleteManual: (source: HoldingSource) => void;
+}) {
   const [activity, setActivity] = useState<ActivityResponse | null>(null);
   const costBasis = holding.performance.cost_basis_eur === null
     ? null
@@ -782,9 +1017,29 @@ function HoldingDetails({ holding }: { holding: ScopedHolding }) {
               </div>
             </dl>
             <footer>
-              {source.valued_at ? `Valued ${timestamp(source.valued_at)}` : "No valuation date"}
-              {` · ${valuationLabel(source)}`}
-              {source.is_stale ? " · Stale" : ""}
+              <span>
+                {source.valued_at ? `Valued ${timestamp(source.valued_at)}` : "No valuation date"}
+                {` · ${valuationLabel(source)}`}
+                {source.is_stale ? " · Stale" : ""}
+              </span>
+              {source.broker === "manual" && (
+                <span className="manual-source-actions">
+                  <button
+                    type="button"
+                    className="text-button"
+                    onClick={() => onEditManual(source, holding.asset_type)}
+                  >
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    className="text-button danger"
+                    onClick={() => void onDeleteManual(source)}
+                  >
+                    Delete
+                  </button>
+                </span>
+              )}
             </footer>
           </article>
         ))}

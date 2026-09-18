@@ -1,7 +1,7 @@
 # Northstar Investment OS — Requirements Refresh and Kanban Roadmap
 
 > Updated 2026-08-16: the stock/ETF/crypto foundation now includes Trading 212,
-> Binance, eToro, Interactive Brokers Flex, Bybit files, Trading 212 Crypto files, and native
+> Binance, Bybit EU, eToro, Interactive Brokers Flex, Trading 212 Crypto files, and native
 > XTB, Trade Republic, and Scalable Capital statement imports. Items
 > explicitly marked partial still need follow-up tickets.
 
@@ -177,7 +177,8 @@ All implementation tickets should target approximately 1–3 working days and in
 22. [removed] Do not provide generic transaction templates; supported imports should accept the provider's native export without user reformatting.
 23. [moved] Reserve manual entry for the Phase 4 diversified-asset model in item 63, beginning with real estate rather than manually maintained stocks or crypto.
 24. [x] Add automatic source-total reconciliation where a live provider exposes an independent account total, warning only beyond both 3% and EUR 5. Providers without an independent total remain silent; Trading 212 Crypto overlap deduplication stays automatic.
-24a. [x] Replace the blocked Bybit EU API flow with a multi-file native CSV/XLSX import
+24a. [x] Add a Bybit EU V5 read-only API connector; retain the native CSV/XLSX importer as
+    a backward-compatible migration path
      for exported balances, Spot activity, fees, transfers, and supported income. Prefer
      exported cash balances, estimate only when necessary, deduplicate overlaps, and erase
      obsolete API credentials on first import.

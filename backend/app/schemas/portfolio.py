@@ -141,6 +141,71 @@ class HoldingMetadataRead(HoldingMetadataUpdate):
     updated_at: datetime | None = None
 
 
+class ManualPositionWrite(BaseModel):
+    ticker: str = Field(min_length=1, max_length=32)
+    name: str | None = Field(default=None, max_length=200)
+    asset_type: AssetType
+    quantity: Decimal = Field(gt=0, max_digits=28, decimal_places=10)
+    average_price: Decimal | None = Field(
+        default=None, ge=0, max_digits=20, decimal_places=8
+    )
+    current_price: Decimal = Field(gt=0, max_digits=20, decimal_places=8)
+    currency: str = Field(default="EUR", min_length=3, max_length=3)
+    isin: str | None = Field(default=None, max_length=12)
+
+    @field_validator("asset_type")
+    @classmethod
+    def supported_manual_type(cls, value: AssetType) -> AssetType:
+        if value not in {AssetType.STOCK, AssetType.ETF, AssetType.CRYPTO}:
+            raise ValueError("Choose Stock, ETF, or Crypto")
+        return value
+
+    @field_validator("ticker")
+    @classmethod
+    def clean_ticker(cls, value: str) -> str:
+        cleaned = value.strip().upper()
+        if not cleaned or any(
+            character not in "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-/" for character in cleaned
+        ):
+            raise ValueError(
+                "Use only letters, numbers, dots, dashes, underscores, or slashes"
+            )
+        return cleaned
+
+    @field_validator("name")
+    @classmethod
+    def clean_manual_name(cls, value: str | None) -> str | None:
+        cleaned = (value or "").strip()
+        return cleaned or None
+
+    @field_validator("currency")
+    @classmethod
+    def clean_manual_currency(cls, value: str) -> str:
+        cleaned = value.strip().upper()
+        if len(cleaned) != 3 or not cleaned.isalpha():
+            raise ValueError("Enter a three-letter currency code such as EUR or USD")
+        return cleaned
+
+    @field_validator("isin")
+    @classmethod
+    def clean_manual_isin(cls, value: str | None) -> str | None:
+        cleaned = (value or "").replace(" ", "").upper()
+        if not cleaned:
+            return None
+        if len(cleaned) != 12 or not cleaned[:2].isalpha() or not cleaned[-1].isdigit():
+            raise ValueError("Enter a valid 12-character ISIN or leave it empty")
+        return cleaned
+
+
+class ManualPositionRead(ManualPositionWrite):
+    id: uuid.UUID
+    current_value: Decimal
+    current_value_eur: Decimal
+    open_pnl: Decimal | None
+    open_pnl_eur: Decimal | None
+    valued_at: datetime
+
+
 class ReconciliationWarning(BaseModel):
     broker: Broker
     connection_id: uuid.UUID
