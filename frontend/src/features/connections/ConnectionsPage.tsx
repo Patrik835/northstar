@@ -6,32 +6,30 @@ import type {
   ConnectionGuide,
   StatementImportResult,
 } from "../../api/types";
-
-const names: Record<Broker, string> = {
-  trading212: "Trading 212",
-  trading212_crypto: "Trading 212 Crypto",
-  etoro: "eToro",
-  binance: "Binance",
-  xtb: "XTB",
-};
+import { brokerLogo, brokerName, brokerShortMark } from "../../domain/brokers";
 
 type SourceFilter = "all" | "connected" | "api" | "csv";
 
-function sourceMark(broker: Broker) {
-  if (broker === "trading212") return "T2";
-  if (broker === "trading212_crypto") return "2C";
-  if (broker === "binance") return "BN";
-  if (broker === "xtb") return "XT";
-  return "eT";
+function SourceMark({
+  broker,
+  shortMark,
+}: {
+  broker: Broker;
+  shortMark?: string;
+}) {
+  const logo = brokerLogo(broker);
+  return (
+    <span className={`compact-source-mark ${broker}`} aria-hidden="true">
+      {logo ? <img src={logo} alt="" /> : (shortMark ?? brokerShortMark(broker))}
+    </span>
+  );
 }
 
-function statusLabel(connection: Connection) {
+function statusLabel(connection: Connection, isCsv: boolean) {
   if (connection.status === "pending") return "Waiting for data";
   if (connection.status === "active") return connection.is_stale ? "Connected" : "Up to date";
   if (connection.status === "limited") {
-    return connection.broker === "trading212_crypto"
-      ? "Imported with estimates"
-      : "Connected with limitations";
+    return isCsv ? "Imported with estimates" : "Connected with limitations";
   }
   if (connection.status === "error") return "Needs attention";
   return "Disabled";
@@ -53,6 +51,7 @@ export function ConnectionsPage() {
   const [selected, setSelected] = useState<ConnectionGuide | null>(null);
   const [reconnecting, setReconnecting] = useState<Connection | null>(null);
   const [message, setMessage] = useState("");
+  const [modalMessage, setModalMessage] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -76,7 +75,7 @@ export function ConnectionsPage() {
       if (filter === "csv" && guide.connection_type !== "csv") return false;
       return (
         !needle ||
-        names[guide.broker].toLowerCase().includes(needle) ||
+        guide.display_name.toLowerCase().includes(needle) ||
         guide.category.toLowerCase().includes(needle) ||
         guide.description.toLowerCase().includes(needle)
       );
@@ -97,11 +96,13 @@ export function ConnectionsPage() {
   function closeModal() {
     setSelected(null);
     setReconnecting(null);
+    setModalMessage("");
   }
 
   function openSource(guide: ConnectionGuide) {
     setReconnecting(null);
     setSelected(guide);
+    setModalMessage("");
   }
 
   function openReconnect(connection: Connection, guide: ConnectionGuide) {
@@ -109,6 +110,7 @@ export function ConnectionsPage() {
     setReconnecting(connection);
     setSelected(guide);
     setMessage("");
+    setModalMessage("");
   }
 
   async function submitApi(event: FormEvent<HTMLFormElement>) {
@@ -116,9 +118,15 @@ export function ConnectionsPage() {
     if (!selected) return;
     const data = new FormData(event.currentTarget);
     const credentials = Object.fromEntries(
-      selected.credential_fields.map((field) => [field, String(data.get(field))]),
+      selected.credential_fields.map((field) => [field, String(data.get(field) ?? "").trim()]),
     );
+    if (Object.values(credentials).some((value) => !value)) {
+      setModalMessage("Enter both the API key and API secret.");
+      return;
+    }
     const busyKey = reconnecting?.id ?? selected.broker;
+    setMessage("");
+    setModalMessage("");
     setBusyId(busyKey);
     try {
       const connection = reconnecting
@@ -135,17 +143,17 @@ export function ConnectionsPage() {
       setMessage(
         connection.status === "active"
           ? wasReconnect
-            ? `${names[connection.broker]} credentials replaced and portfolio updated.`
-            : `${names[connection.broker]} connected and portfolio imported.`
+            ? `${brokerName(connection.broker)} credentials replaced and portfolio updated.`
+            : `${brokerName(connection.broker)} connected and portfolio imported.`
           : connection.status === "limited"
             ? wasReconnect
-              ? `${names[connection.broker]} credentials replaced; history access is limited.`
-              : `${names[connection.broker]} imported with limited history access.`
+              ? `${brokerName(connection.broker)} credentials replaced; history access is limited.`
+              : `${brokerName(connection.broker)} imported with limited history access.`
             : connection.last_error || "The connection was saved but needs attention.",
       );
       await refresh();
     } catch (reason) {
-      setMessage(reason instanceof Error ? reason.message : "Could not save connection");
+      setModalMessage(reason instanceof Error ? reason.message : "Could not save connection");
     } finally {
       setBusyId(null);
     }
@@ -154,30 +162,28 @@ export function ConnectionsPage() {
   async function submitCsv(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selected) return;
+    const fileImport = selected.file_import;
+    if (!fileImport) {
+      setMessage("This import source is not configured correctly.");
+      return;
+    }
     const form = new FormData(event.currentTarget);
     const files = form
       .getAll("file")
       .filter((file): file is File => file instanceof File && file.size > 0);
     if (!files.length) {
-      setMessage(
-        selected.broker === "xtb"
-          ? "Choose at least one XTB CSV or Excel report first."
-          : "Choose the Trading 212 Crypto CSV export first.",
-      );
+      setMessage(fileImport.empty_file_message);
       return;
     }
     setBusyId(selected.broker);
     try {
-      const result = await api<StatementImportResult>(
-        selected.broker === "xtb"
-          ? "/connections/imports/xtb"
-          : "/connections/imports/trading212-crypto",
-        { method: "POST", body: form },
-      );
+      const result = await api<StatementImportResult>(fileImport.endpoint, {
+        method: "POST",
+        body: form,
+      });
       closeModal();
-      const holdingLabel = selected.broker === "xtb" ? "holding" : "crypto holding";
       setMessage(
-        `Imported ${result.positions_imported} ${holdingLabel}${
+        `Imported ${result.positions_imported} ${fileImport.holding_label}${
           result.positions_imported === 1 ? "" : "s"
         } and ${result.transactions_added} new transaction${
           result.transactions_added === 1 ? "" : "s"
@@ -197,7 +203,7 @@ export function ConnectionsPage() {
       );
       await refresh();
     } catch (reason) {
-      setMessage(reason instanceof Error ? reason.message : "Could not import the CSV");
+      setMessage(reason instanceof Error ? reason.message : "Could not import the selected file");
     } finally {
       setBusyId(null);
     }
@@ -212,7 +218,7 @@ export function ConnectionsPage() {
       });
       setMessage(
         result.status === "active"
-          ? `${names[result.broker]} portfolio updated.`
+          ? `${brokerName(result.broker)} portfolio updated.`
           : result.last_error || "Synchronization needs attention.",
       );
       await refresh();
@@ -253,14 +259,14 @@ export function ConnectionsPage() {
 
   async function remove(connection: Connection) {
     setOpenMenuId(null);
-    if (!window.confirm(`Remove ${names[connection.broker]} and all of its imported data?`)) {
+    if (!window.confirm(`Remove ${brokerName(connection.broker)} and all of its imported data?`)) {
       return;
     }
     setBusyId(connection.id);
     setMessage("");
     try {
       await api(`/connections/${connection.id}`, { method: "DELETE" });
-      setMessage(`${names[connection.broker]} source removed.`);
+      setMessage(`${brokerName(connection.broker)} source removed.`);
       await refresh();
     } catch (reason) {
       setMessage(reason instanceof Error ? reason.message : "Could not remove source");
@@ -272,6 +278,8 @@ export function ConnectionsPage() {
   function guideFor(broker: Broker) {
     return guides.find((guide) => guide.broker === broker);
   }
+
+  const selectedFileImport = selected?.file_import;
 
   return (
     <>
@@ -318,14 +326,15 @@ export function ConnectionsPage() {
               const isBusy = busyId === connection.id || busyId === "all";
               return (
                 <article className="connected-row" key={connection.id}>
-                  <span className={`compact-source-mark ${connection.broker}`}>
-                    {sourceMark(connection.broker)}
-                  </span>
+                  <SourceMark
+                    broker={connection.broker}
+                    shortMark={guide?.short_mark}
+                  />
                   <div className="connected-main">
                     <div>
-                      <strong>{names[connection.broker]}</strong>
+                      <strong>{guide?.display_name ?? brokerName(connection.broker)}</strong>
                       <span className={`status ${connection.status}`}>
-                        {statusLabel(connection)}
+                        {statusLabel(connection, isCsv)}
                       </span>
                       <span
                         className={`freshness ${connection.freshness_status}`}
@@ -395,7 +404,7 @@ export function ConnectionsPage() {
                     >
                       <button
                         className="icon-button"
-                        aria-label={`More options for ${names[connection.broker]}`}
+                        aria-label={`More options for ${brokerName(connection.broker)}`}
                         aria-haspopup="menu"
                         aria-expanded={openMenuId === connection.id}
                         title="Connection options"
@@ -477,17 +486,17 @@ export function ConnectionsPage() {
               const current = connections.find((item) => item.broker === guide.broker);
               return (
                 <article className="source-catalog-item" key={guide.broker}>
-                  <span className={`compact-source-mark ${guide.broker}`}>
-                    {sourceMark(guide.broker)}
-                  </span>
+                  <SourceMark broker={guide.broker} shortMark={guide.short_mark} />
                   <div className="catalog-copy">
                     <div>
-                      <h3>{names[guide.broker]}</h3>
+                      <h3>{guide.display_name}</h3>
                       <span>{guide.category}</span>
                     </div>
                     <p>{guide.description}</p>
                     <small>
-                      {guide.connection_type === "api" ? "Automatic · 1–2 hours" : "Manual import"}
+                      {guide.connection_type === "api"
+                        ? `Automatic · ${guide.sync_frequency_label ?? "Scheduled"}`
+                        : "Manual import"}
                     </small>
                   </div>
                   {current && guide.connection_type === "api" ? (
@@ -516,11 +525,10 @@ export function ConnectionsPage() {
             className={`modal connection-modal${reconnecting ? " reconnect-modal" : ""}`}
             onSubmit={selected.connection_type === "csv" ? submitCsv : submitApi}
             onMouseDown={(event) => event.stopPropagation()}
+            noValidate={selected.connection_type === "api"}
           >
             <div className="modal-source-heading">
-              <span className={`compact-source-mark ${selected.broker}`}>
-                {sourceMark(selected.broker)}
-              </span>
+              <SourceMark broker={selected.broker} shortMark={selected.short_mark} />
               <div>
                 <p className="eyebrow">
                   {selected.connection_type === "csv"
@@ -529,7 +537,7 @@ export function ConnectionsPage() {
                       ? "Replace credentials"
                       : "Secure connection"}
                 </p>
-                <h2>{names[selected.broker]}</h2>
+                <h2>{selected.display_name}</h2>
               </div>
             </div>
             {reconnecting ? (
@@ -581,28 +589,16 @@ export function ConnectionsPage() {
               </section>
             )}
 
-            {selected.connection_type === "csv" ? (
+            {selected.connection_type === "csv" && selectedFileImport ? (
               <label className="csv-dropzone">
                 <span className="upload-mark">↑</span>
-                <strong>
-                  {selected.broker === "xtb"
-                    ? "Select XTB reports"
-                    : "Select Trading 212 Crypto CSV"}
-                </strong>
-                <small>
-                  {selected.broker === "xtb"
-                    ? "CSV or XLSX · select current positions and history together · overlapping reports are safe"
-                    : "CSV only · maximum 10 MB · overlapping exports are safe"}
-                </small>
+                <strong>{selectedFileImport.prompt}</strong>
+                <small>{selectedFileImport.help_text}</small>
                 <input
                   name="file"
                   type="file"
-                  accept={
-                    selected.broker === "xtb"
-                      ? ".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                      : ".csv,text/csv"
-                  }
-                  multiple={selected.broker === "xtb"}
+                  accept={selectedFileImport.accept}
+                  multiple={selectedFileImport.multiple}
                   required
                 />
               </label>
@@ -618,11 +614,14 @@ export function ConnectionsPage() {
               </div>
             )}
 
+            {modalMessage && <p className="connection-error modal-error" role="alert">{modalMessage}</p>}
+
             <div className="button-row">
               <button type="button" className="text-button" onClick={closeModal}>
                 Cancel
               </button>
               <button
+                type="submit"
                 className="primary"
                 disabled={busyId === (reconnecting?.id ?? selected.broker)}
               >

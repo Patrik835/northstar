@@ -284,7 +284,9 @@ async def test_holdings_groups_share_classes_as_one_company_exposure() -> None:
         ),
     ]
 
-    result = await PortfolioService(HoldingsRepository(rows)).holdings(uuid.uuid4())
+    result = await PortfolioService(
+        HoldingsRepository(rows)
+    ).holdings(uuid.uuid4())
 
     assert result.instrument_count == 1
     assert result.position_count == 2
@@ -332,9 +334,7 @@ async def test_holdings_exposes_stale_estimated_and_reconciliation_status() -> N
         )
     ]
 
-    result = await PortfolioService(HoldingsRepository(rows), sync_interval_minutes=120).holdings(
-        uuid.uuid4()
-    )
+    result = await PortfolioService(HoldingsRepository(rows)).holdings(uuid.uuid4())
 
     assert result.as_of == stale_at
     assert result.stale_source_count == 1

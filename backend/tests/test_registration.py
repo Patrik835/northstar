@@ -2,10 +2,14 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 from pydantic import ValidationError
+from sqlalchemy import create_engine, func, select
+from sqlalchemy.orm import Session, sessionmaker
 
+import app.models  # noqa: F401
 from app.core.config import get_settings
+from app.core.database import Base
 from app.integrations.email.base import EmailSender
-from app.models.user import User
+from app.models.user import EmailVerificationToken, User
 from app.schemas.auth import RegistrationRequest
 from app.services.registration import RegistrationService
 
@@ -22,6 +26,29 @@ class CapturingEmailSender(EmailSender):
             "username": username,
             "verification_url": verification_url,
         }
+
+
+class AsyncSessionAdapter:
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def add(self, item) -> None:
+        self.session.add(item)
+
+    async def flush(self) -> None:
+        self.session.flush()
+
+    async def commit(self) -> None:
+        self.session.commit()
+
+    async def rollback(self) -> None:
+        self.session.rollback()
+
+    async def execute(self, statement):
+        return self.session.execute(statement)
+
+    async def scalar(self, statement):
+        return self.session.scalar(statement)
 
 
 def test_registration_rejects_mismatched_passwords() -> None:
@@ -63,3 +90,31 @@ async def test_verification_delivery_contains_raw_token_only_in_link() -> None:
     parsed = urlparse(sender.message["verification_url"])
     assert parsed.path == "/verify-email"
     assert parse_qs(parsed.query) == {"token": ["one-time-secret"]}
+
+
+@pytest.mark.asyncio
+async def test_existing_account_can_add_email_and_receive_verification() -> None:
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(engine, expire_on_commit=False)
+    try:
+        with factory() as sync_db:
+            db = AsyncSessionAdapter(sync_db)
+            user = User(username="existing-user", password_hash="unused")
+            db.add(user)
+            await db.commit()
+            sender = CapturingEmailSender()
+
+            await RegistrationService(
+                db,  # type: ignore[arg-type]
+                get_settings(),
+                sender,
+            ).set_account_email(user, " Investor@Example.com ")
+
+            assert user.email == "investor@example.com"
+            assert user.email_verified_at is None
+            assert sender.message is not None
+            assert sender.message["recipient"] == "investor@example.com"
+            assert await db.scalar(select(func.count()).select_from(EmailVerificationToken)) == 1
+    finally:
+        engine.dispose()

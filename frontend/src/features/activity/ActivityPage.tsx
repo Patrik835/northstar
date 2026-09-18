@@ -6,14 +6,8 @@ import type {
   TransactionType,
 } from "../../api/types";
 import { EmptyState } from "../../components/EmptyState";
-
-const brokerLabels: Record<Broker, string> = {
-  trading212: "Trading 212",
-  trading212_crypto: "Trading 212 Crypto",
-  etoro: "eToro",
-  binance: "Binance",
-  xtb: "XTB",
-};
+import { CsvDownloadButton } from "../../components/CsvDownloadButton";
+import { brokerName, brokers } from "../../domain/brokers";
 const activityLabels: Record<TransactionType, string> = {
   buy: "Buy",
   sell: "Sell",
@@ -23,7 +17,6 @@ const activityLabels: Record<TransactionType, string> = {
   fee: "Fee",
   other: "Other",
 };
-const allBrokers = Object.keys(brokerLabels) as Broker[];
 type ActivityGroup = "trade" | "dividend";
 const activityGroups: Array<[ActivityGroup, string]> = [
   ["trade", "Buy / Sell"],
@@ -73,6 +66,23 @@ export function ActivityPage() {
     return params.toString();
   }, [broker, dateFrom, dateTo, offset, search, type]);
 
+  const exportPaths = useMemo(() => {
+    const filters = new URLSearchParams();
+    if (search.trim()) filters.set("search", search.trim());
+    if (broker) filters.set("broker", broker);
+    if (type) filters.set("activity_group", type);
+    if (dateFrom) filters.set("date_from", dateFrom);
+    if (dateTo) filters.set("date_to", dateTo);
+    const incomeFilters = new URLSearchParams(filters);
+    incomeFilters.delete("activity_group");
+    const transactionQuery = filters.toString();
+    const incomeQuery = incomeFilters.toString();
+    return {
+      transactions: `/exports/transactions.csv${transactionQuery ? `?${transactionQuery}` : ""}`,
+      income: `/exports/income.csv${incomeQuery ? `?${incomeQuery}` : ""}`,
+    };
+  }, [broker, dateFrom, dateTo, search, type]);
+
   useEffect(() => {
     const timeout = window.setTimeout(() => {
       api<ActivityResponse>(`/activity?${query}`)
@@ -110,7 +120,23 @@ export function ActivityPage() {
             Buys, sells, and dividends from every connected source.
           </p>
         </div>
-        <span className="as-of">{result ? `${result.total} matching events` : "Loading…"}</span>
+        <div className="page-header-actions activity-export-actions">
+          <div className="csv-export-group">
+            <CsvDownloadButton
+              path={exportPaths.transactions}
+              label="Transactions CSV"
+              disabled={!result}
+            />
+            <CsvDownloadButton
+              path={exportPaths.income}
+              label="Income CSV"
+              disabled={!result}
+            />
+          </div>
+          <span className="as-of">
+            {result ? `${result.total} matching events` : "Loading…"}
+          </span>
+        </div>
       </header>
       {error && <p className="error">{error}</p>}
       <section className="panel activity-panel">
@@ -132,8 +158,8 @@ export function ActivityPage() {
               }
             >
               <option value="">All sources</option>
-              {allBrokers.map((value) => (
-                <option value={value} key={value}>{brokerLabels[value]}</option>
+              {brokers.map((value) => (
+                <option value={value} key={value}>{brokerName(value)}</option>
               ))}
             </select>
           </label>
@@ -221,7 +247,7 @@ export function ActivityPage() {
                   <span className="activity-instrument">
                     <strong>{item.symbol}</strong><small>{item.name}</small>
                   </span>
-                  <span>{brokerLabels[item.broker]}</span>
+                  <span>{brokerName(item.broker)}</span>
                   <span>{item.quantity === null ? "—" : number.format(Number(item.quantity))}</span>
                   <span className="activity-value">
                     <strong>

@@ -13,7 +13,11 @@ class Broker(StrEnum):
     TRADING212_CRYPTO = "trading212_crypto"
     ETORO = "etoro"
     BINANCE = "binance"
+    BYBIT = "bybit"
+    INTERACTIVE_BROKERS = "interactive_brokers"
     XTB = "xtb"
+    TRADE_REPUBLIC = "trade_republic"
+    SCALABLE_CAPITAL = "scalable_capital"
 
 
 class ConnectionStatus(StrEnum):

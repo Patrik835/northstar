@@ -26,9 +26,7 @@ class InvalidVerificationTokenError(Exception):
 
 
 class RegistrationService:
-    def __init__(
-        self, db: AsyncSession, settings: Settings, email_sender: EmailSender
-    ) -> None:
+    def __init__(self, db: AsyncSession, settings: Settings, email_sender: EmailSender) -> None:
         self.db = db
         self.settings = settings
         self.email_sender = email_sender
@@ -82,6 +80,25 @@ class RegistrationService:
         await self.db.commit()
         await self._deliver(user, raw_token)
 
+    async def set_account_email(self, user: User, email: str) -> None:
+        normalized_email = email.strip().lower()
+        existing = await self.users.by_email(normalized_email)
+        if existing is not None and existing.id != user.id:
+            raise RegistrationConflictError
+        if user.email != normalized_email:
+            user.email = normalized_email
+            user.email_verified_at = None
+        if user.email_verified_at is not None:
+            return
+        try:
+            await self.db.flush()
+            raw_token = await self._new_token(user)
+            await self.db.commit()
+        except IntegrityError as exc:
+            await self.db.rollback()
+            raise RegistrationConflictError from exc
+        await self._deliver(user, raw_token)
+
     async def _new_token(self, user: User) -> str:
         now = datetime.now(timezone.utc)
         await self.db.execute(
@@ -97,8 +114,7 @@ class RegistrationService:
             EmailVerificationToken(
                 user_id=user.id,
                 token_digest=digest_session_token(raw_token),
-                expires_at=now
-                + timedelta(hours=self.settings.email_verification_ttl_hours),
+                expires_at=now + timedelta(hours=self.settings.email_verification_ttl_hours),
             )
         )
         return raw_token
@@ -106,9 +122,7 @@ class RegistrationService:
     async def _deliver(self, user: User, raw_token: str) -> None:
         assert user.email is not None
         query = urlencode({"token": raw_token})
-        verification_url = (
-            f"{self.settings.public_web_url.rstrip('/')}/verify-email?{query}"
-        )
+        verification_url = f"{self.settings.public_web_url.rstrip('/')}/verify-email?{query}"
         await self.email_sender.send_verification_email(
             recipient=user.email,
             username=user.username,

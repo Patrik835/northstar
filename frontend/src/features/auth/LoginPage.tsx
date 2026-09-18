@@ -43,6 +43,7 @@ export function LoginPage() {
         <label>Password<input name="password" type="password" autoComplete="current-password" minLength={8} required /></label>
         {error && <p className="error" role="alert">{error}</p>}
         <button className="primary" disabled={submitting}>{submitting ? "Signing in…" : "Sign in"}</button>
+        <p className="fine-print"><Link to="/forgot-password">Forgot your password?</Link></p>
         <p className="fine-print">New to Northstar? <Link to="/register">Create an account</Link></p>
       </form>
     </main>

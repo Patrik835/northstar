@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs><linearGradient id="ib-gradient" x1="352" x2="125" y1="386" y2="386" gradientUnits="userSpaceOnUse"><stop stop-color="#d81222"/><stop offset="1" stop-color="#960b1a"/></linearGradient></defs>
+  <path fill="url(#ib-gradient)" d="M351.3 512H124.8V262.4z"/>
+  <path fill="#d81222" d="M319.4 256a67.8 67.8 0 1 1 0 135.6 67.8 67.8 0 0 1 0-135.6M351.3 0 124.8 262.4V512z"/>
+</svg>

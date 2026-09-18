@@ -133,7 +133,26 @@ def _sample_history_points(
                 ),
             )
         )
+    # The final chart point represents "now", not an average of the last bucket.
+    # Keeping it exact makes the graph agree with the current portfolio total.
+    sampled[-1] = points[-1]
     return sampled, SAMPLING_LABELS[selected_range]
+
+
+def _anchor_current_total(
+    points: list[PortfolioHistoryPoint],
+    current_total: Decimal,
+) -> list[PortfolioHistoryPoint]:
+    """Anchor the history series to the same live total used by the dashboard."""
+    if not points:
+        return points
+    anchored = PortfolioHistoryPoint(
+        date=points[-1].date,
+        total_value_eur=_round_money(current_total),
+        net_invested_eur=points[-1].net_invested_eur,
+        invested_value_eur=points[-1].invested_value_eur,
+    )
+    return [*points[:-1], anchored]
 
 
 def _reconstruct_weekly_history(
@@ -446,6 +465,9 @@ class PerformanceService:
             if reconstructed:
                 points = reconstructed + points
                 history_method = "reconstructed"
+
+        current_total = await self.repository.total(user_id)
+        points = _anchor_current_total(points, current_total)
 
         first_point = points[0]
         last_point = points[-1]

@@ -4,11 +4,12 @@ from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
-from app.api.dependencies import AdminUser, DbSession
+from app.api.dependencies import AdminUser, AppSettings, DbSession
 from app.core.security import hash_password
 from app.models.user import User
 from app.repositories.users import UserRepository
 from app.schemas.user import AdminUserCreate, UserRead
+from app.services.operations import operations_snapshot
 
 router = APIRouter()
 
@@ -37,3 +38,10 @@ async def create_user(
         await db.rollback()
         raise HTTPException(status.HTTP_409_CONFLICT, "Username or email already exists") from exc
     return UserRead.model_validate(user)
+
+
+@router.get("/operations")
+async def operations(
+    admin: AdminUser, db: DbSession, settings: AppSettings
+) -> dict[str, object]:
+    return await operations_snapshot(db, settings)

@@ -2,10 +2,14 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Literal
 
+from app.integrations.connectors.registry import ConnectorRegistry
 from app.models.enums import Broker
 
-LIVE_BROKERS = frozenset({Broker.TRADING212, Broker.ETORO, Broker.BINANCE})
-LIVE_STALE_AFTER = timedelta(hours=24)
+LIVE_BROKERS = frozenset(ConnectorRegistry().brokers())
+LIVE_STALE_AFTER = {
+    definition.broker: timedelta(hours=definition.stale_after_hours)
+    for definition in ConnectorRegistry().definitions()
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -18,12 +22,11 @@ class FreshnessDetails:
 def connection_freshness(
     broker: Broker,
     successful_at: datetime | None,
-    sync_interval_minutes: int,
     *,
     now: datetime | None = None,
 ) -> FreshnessDetails:
     stale_after = (
-        successful_at + LIVE_STALE_AFTER
+        successful_at + LIVE_STALE_AFTER[broker]
         if successful_at is not None and broker in LIVE_BROKERS
         else None
     )

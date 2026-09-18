@@ -7,6 +7,7 @@ import type {
   PortfolioPerformance,
 } from "../../api/types";
 import { EmptyState } from "../../components/EmptyState";
+import { brokerNameFromValue } from "../../domain/brokers";
 
 const money = new Intl.NumberFormat("en-IE", {
   style: "currency", currency: "EUR", maximumFractionDigits: 2,
@@ -32,9 +33,12 @@ const dimensionLabels: Record<AllocationBreakdown["dimension"], string> = {
 };
 const valueLabels: Record<string, string> = {
   stock: "Stocks", etf: "ETFs", crypto: "Crypto", cash: "Cash", other: "Other",
-  trading212: "Trading 212", trading212_crypto: "Trading 212 Crypto",
-  etoro: "eToro", binance: "Binance", xtb: "XTB",
 };
+
+function allocationValueLabel(dimension: AllocationBreakdown["dimension"], value: string) {
+  if (valueLabels[value]) return valueLabels[value];
+  return dimension === "broker" ? brokerNameFromValue(value) : value;
+}
 
 function signed(value: number, suffix = "%") {
   return `${value > 0 ? "+" : ""}${percent.format(value)}${suffix}`;
@@ -62,7 +66,9 @@ function AllocationBars({ breakdown }: { breakdown: AllocationBreakdown }) {
       <div className="analytics-bars">
         {breakdown.items.slice(0, breakdown.dimension === "holding" ? 15 : 12).map((item) => (
           <div className="analytics-bar-row" key={item.label}>
-            <span title={item.label}>{valueLabels[item.label] ?? item.label}</span>
+            <span title={item.label}>
+              {allocationValueLabel(breakdown.dimension, item.label)}
+            </span>
             <strong>{item.percentage}%</strong>
             <div><i style={{ width: `${Math.min(Number(item.percentage), 100)}%` }} /></div>
             <small>{money.format(Number(item.value_eur))}</small>

@@ -1,0 +1,106 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: investing_test
+          POSTGRES_USER: investing
+          POSTGRES_PASSWORD: testing-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U investing -d investing_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      APP_SECRET_KEY: test-secret-key-that-is-at-least-32-chars
+      CREDENTIAL_ENCRYPTION_KEY: MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=
+      DATABASE_URL: postgresql+asyncpg://investing:testing-only@localhost:5432/investing_test
+      SCHEDULER_ENABLED: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e 'backend[dev]' pip-audit
+      - run: cd backend && ruff check .
+      - run: cd backend && pytest
+      - run: cd backend && alembic upgrade head
+      - run: cd backend && alembic downgrade base && alembic upgrade head
+      - run: pip-audit
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: cd frontend && npm ci
+      - run: cd frontend && npm run lint
+      - run: cd frontend && npm run build
+      - run: cd frontend && npm audit --audit-level=high
+
+  browser-and-restore:
+    runs-on: ubuntu-latest
+    needs: [backend, frontend]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: cd frontend && npm ci
+      - run: cd frontend && npx playwright install --with-deps chromium
+      - name: Configure test deployment
+        run: |
+          printf '%s\n' \
+            'APP_ENV=test' \
+            'APP_SECRET_KEY=test-secret-key-that-is-at-least-32-chars' \
+            'CREDENTIAL_ENCRYPTION_KEY=MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=' \
+            'POSTGRES_PASSWORD=testing-only' \
+            'COOKIE_SECURE=false' \
+            'PUBLIC_WEB_URL=http://127.0.0.1:8080' \
+            'FRONTEND_ORIGIN=http://127.0.0.1:8080' \
+            'SCHEDULER_ENABLED=false' > .env
+      - run: docker compose up --build -d
+      - name: Wait for application
+        run: |
+          for attempt in $(seq 1 60); do
+            curl --fail --silent http://127.0.0.1:8080/api/v1/health/ready && exit 0
+            sleep 2
+          done
+          docker compose logs api web migrate
+          exit 1
+      - run: cd frontend && npm run e2e
+      - name: Verify backup and restore
+        run: |
+          docker compose exec -T backup /usr/local/bin/northstar-backup once
+          BACKUP_FILE=$(find backups -maxdepth 1 -name 'northstar-*.dump' -printf '%f\n' | sort | tail -n 1)
+          test -n "$BACKUP_FILE"
+          docker compose run --rm --entrypoint /usr/local/bin/northstar-restore-smoke-test \
+            backup "/backups/$BACKUP_FILE"
+      - if: always()
+        run: docker compose logs api web migrate backup
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: frontend/playwright-report
+          if-no-files-found: ignore

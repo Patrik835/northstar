@@ -11,3 +11,24 @@ class EmailSender(ABC):
         self, *, recipient: str, username: str, verification_url: str
     ) -> None: ...
 
+    async def send_notification_digest(
+        self,
+        *,
+        recipient: str,
+        username: str,
+        alerts: list[str],
+        news: list[str],
+        events: list[str],
+        updates_url: str,
+    ) -> None:
+        raise NotImplementedError
+
+    async def send_password_reset_email(
+        self,
+        *,
+        recipient: str,
+        username: str,
+        reset_url: str,
+        expires_minutes: int,
+    ) -> None:
+        raise NotImplementedError

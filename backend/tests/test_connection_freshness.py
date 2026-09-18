@@ -20,11 +20,9 @@ def _connection(broker: Broker, successful_at: datetime | None) -> BrokerConnect
 
 
 def test_live_connection_becomes_stale_after_24_hours() -> None:
-    connection = _connection(
-        Broker.TRADING212, datetime.now(timezone.utc) - timedelta(hours=25)
-    )
+    connection = _connection(Broker.TRADING212, datetime.now(timezone.utc) - timedelta(hours=25))
 
-    result = ConnectionRead.from_connection(connection, sync_interval_minutes=120)
+    result = ConnectionRead.from_connection(connection)
 
     assert result.freshness_status == "stale"
     assert result.is_stale is True
@@ -32,11 +30,21 @@ def test_live_connection_becomes_stale_after_24_hours() -> None:
 
 
 def test_live_connection_is_fresh_within_24_hours() -> None:
+    connection = _connection(Broker.TRADING212, datetime.now(timezone.utc) - timedelta(hours=23))
+
+    result = ConnectionRead.from_connection(connection)
+
+    assert result.freshness_status == "fresh"
+    assert result.is_stale is False
+
+
+def test_daily_ibkr_connection_uses_48_hour_freshness_window() -> None:
     connection = _connection(
-        Broker.TRADING212, datetime.now(timezone.utc) - timedelta(hours=23)
+        Broker.INTERACTIVE_BROKERS,
+        datetime.now(timezone.utc) - timedelta(hours=30),
     )
 
-    result = ConnectionRead.from_connection(connection, sync_interval_minutes=120)
+    result = ConnectionRead.from_connection(connection)
 
     assert result.freshness_status == "fresh"
     assert result.is_stale is False
@@ -47,7 +55,7 @@ def test_manual_csv_import_is_not_marked_stale_by_live_sync_schedule() -> None:
         Broker.TRADING212_CRYPTO, datetime.now(timezone.utc) - timedelta(days=30)
     )
 
-    result = ConnectionRead.from_connection(connection, sync_interval_minutes=120)
+    result = ConnectionRead.from_connection(connection)
 
     assert result.freshness_status == "fresh"
     assert result.is_stale is False
@@ -55,9 +63,7 @@ def test_manual_csv_import_is_not_marked_stale_by_live_sync_schedule() -> None:
 
 
 def test_never_synchronized_connection_is_explicit() -> None:
-    result = ConnectionRead.from_connection(
-        _connection(Broker.BINANCE, None), sync_interval_minutes=120
-    )
+    result = ConnectionRead.from_connection(_connection(Broker.BINANCE, None))
 
     assert result.freshness_status == "never_synced"
     assert result.is_stale is True

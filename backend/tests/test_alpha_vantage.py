@@ -44,8 +44,26 @@ async def test_alpha_vantage_surfaces_provider_limit_safely() -> None:
         ),
     )
 
-    with pytest.raises(AlphaVantageRateLimitError, match="Daily limit reached"):
+    with pytest.raises(AlphaVantageRateLimitError, match="request limit reached"):
         await provider.weekly_equity("MSFT")
+
+
+@pytest.mark.asyncio
+async def test_alpha_vantage_does_not_expose_key_echoed_by_provider() -> None:
+    provider = AlphaVantageProvider(
+        "sensitive-key",
+        httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200,
+                json={"Information": "API key sensitive-key reached its limit"},
+            )
+        ),
+    )
+
+    with pytest.raises(AlphaVantageRateLimitError) as error:
+        await provider.weekly_equity("MSFT")
+
+    assert "sensitive-key" not in str(error.value)
 
 
 @pytest.mark.asyncio

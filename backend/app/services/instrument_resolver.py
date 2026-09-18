@@ -125,8 +125,12 @@ class InstrumentResolver:
 
     @staticmethod
     def _enrich(instrument: Instrument, position: ConnectorPosition) -> None:
-        instrument.canonical_symbol = normalized_symbol(position)
         isin = valid_isin(position)
+        candidate_symbol = normalized_symbol(position)
+        # Some native broker exports identify a security only by ISIN. Keep an
+        # existing market ticker when that export is linked to the same instrument.
+        if candidate_symbol != isin:
+            instrument.canonical_symbol = candidate_symbol
         if isin and not instrument.isin:
             instrument.isin = isin
             instrument.identity_key = f"ISIN:{isin}"

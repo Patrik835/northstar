@@ -36,13 +36,9 @@ class ConnectionRead(BaseModel):
     stale_after: datetime | None = None
 
     @classmethod
-    def from_connection(
-        cls, connection: "BrokerConnection", sync_interval_minutes: int
-    ) -> "ConnectionRead":
+    def from_connection(cls, connection: "BrokerConnection") -> "ConnectionRead":
         successful_at = connection.last_successful_sync_at or connection.last_synced_at
-        freshness = connection_freshness(
-            connection.broker, successful_at, sync_interval_minutes
-        )
+        freshness = connection_freshness(connection.broker, successful_at)
         return cls.model_validate(connection).model_copy(
             update={
                 "last_successful_sync_at": successful_at,
@@ -53,8 +49,20 @@ class ConnectionRead(BaseModel):
         )
 
 
+class FileImportGuide(BaseModel):
+    endpoint: str
+    accept: str
+    multiple: bool = False
+    prompt: str
+    help_text: str
+    empty_file_message: str
+    holding_label: str
+
+
 class ConnectionGuide(BaseModel):
     broker: Broker
+    display_name: str
+    short_mark: str
     connection_type: Literal["api", "csv"]
     category: str
     description: str
@@ -63,6 +71,8 @@ class ConnectionGuide(BaseModel):
     security_notice: str
     setup_steps: list[str]
     tutorial_url: str
+    sync_frequency_label: str | None = None
+    file_import: FileImportGuide | None = None
 
 
 class StatementImportResult(BaseModel):
@@ -72,10 +82,6 @@ class StatementImportResult(BaseModel):
     duplicates_skipped: int
     positions_imported: int
     warnings: list[str]
-
-
-class CryptoCsvImportResult(StatementImportResult):
-    """Retain the existing Trading 212 Crypto response-model name."""
 
 
 class SyncRunRead(BaseModel):

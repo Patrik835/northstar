@@ -1,0 +1,11 @@
+FROM postgres:17-alpine
+
+COPY backup.sh /usr/local/bin/northstar-backup
+COPY restore.sh /usr/local/bin/northstar-restore
+COPY restore-smoke-test.sh /usr/local/bin/northstar-restore-smoke-test
+RUN chmod 0555 \
+    /usr/local/bin/northstar-backup \
+    /usr/local/bin/northstar-restore \
+    /usr/local/bin/northstar-restore-smoke-test
+
+ENTRYPOINT ["/usr/local/bin/northstar-backup"]

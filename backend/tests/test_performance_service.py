@@ -12,6 +12,7 @@ from app.repositories.portfolio import HistoricalPriceRow, SnapshotRow, Transact
 from app.schemas.performance import PortfolioHistoryPoint
 from app.services.performance import (
     PerformanceService,
+    _anchor_current_total,
     _reconstruct_weekly_history,
     _sample_history_points,
 )
@@ -29,6 +30,15 @@ class PerformanceRepository:
 
     async def transaction_rows(self, _user_id: uuid.UUID) -> list[TransactionRow]:
         return self.transactions
+
+    async def total(self, _user_id: uuid.UUID) -> Decimal:
+        latest_by_connection: dict[uuid.UUID, SnapshotRow] = {}
+        for row in self.snapshots:
+            latest_by_connection[row.connection_id] = row
+        return sum(
+            (row.snapshot.total_value_eur for row in latest_by_connection.values()),
+            Decimal(0),
+        )
 
 
 def snapshot(
@@ -95,6 +105,7 @@ def test_one_year_history_is_sampled_to_52_averaged_points() -> None:
     assert sampled[0].total_value_eur == Decimal("4.00")
     assert sampled[0].net_invested_eur == Decimal("8.00")
     assert sampled[-1].date == points[-1].date
+    assert sampled[-1] == points[-1]
 
 
 def test_short_history_is_not_artificially_expanded() -> None:
@@ -112,6 +123,48 @@ def test_short_history_is_not_artificially_expanded() -> None:
 
     assert sampled == points
     assert sampling == "daily"
+
+
+def test_current_total_replaces_todays_last_history_value() -> None:
+    points = [
+        PortfolioHistoryPoint(
+            date=date(2026, 9, 17),
+            total_value_eur=Decimal("1000"),
+            net_invested_eur=Decimal("900"),
+            invested_value_eur=Decimal("850"),
+        ),
+        PortfolioHistoryPoint(
+            date=date(2026, 9, 18),
+            total_value_eur=Decimal("1010"),
+            net_invested_eur=Decimal("900"),
+            invested_value_eur=Decimal("850"),
+        ),
+    ]
+
+    anchored = _anchor_current_total(
+        points, Decimal("1025.678")
+    )
+
+    assert len(anchored) == 2
+    assert anchored[-1].date == date(2026, 9, 18)
+    assert anchored[-1].total_value_eur == Decimal("1025.68")
+    assert anchored[-1].invested_value_eur == Decimal("850")
+
+
+def test_current_total_keeps_latest_available_history_date() -> None:
+    points = [
+        PortfolioHistoryPoint(
+            date=date(2026, 9, 17),
+            total_value_eur=Decimal("1000"),
+            net_invested_eur=Decimal("900"),
+            invested_value_eur=Decimal("850"),
+        )
+    ]
+
+    anchored = _anchor_current_total(points, Decimal("1025"))
+
+    assert [point.date for point in anchored] == [date(2026, 9, 17)]
+    assert anchored[-1].total_value_eur == Decimal("1025.00")
 
 
 def test_weekly_history_reconstruction_links_to_first_observed_value() -> None:

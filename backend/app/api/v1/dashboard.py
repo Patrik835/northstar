@@ -16,8 +16,7 @@ async def summary(user: CurrentUser, db: DbSession) -> DashboardSummary:
 @router.get("/features", response_model=FeatureStatus)
 async def features(user: CurrentUser, settings: AppSettings) -> FeatureStatus:
     return FeatureStatus(
-        ai=settings.ai_enabled,
-        news=settings.news_enabled,
+        ai=bool(settings.ai_enabled and settings.openai_api_key),
+        news=bool(settings.news_enabled and settings.finnhub_api_key),
         benchmarks=settings.benchmarks_enabled,
     )
-

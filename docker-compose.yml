@@ -31,6 +31,9 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgresql+asyncpg://investing:${POSTGRES_PASSWORD:-investing-local-only}@db:5432/investing
+      BACKUP_STATUS_FILE: /backups/latest-success
+    volumes:
+      - ${BACKUP_DIRECTORY:-./backups}:/backups:ro
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -59,6 +62,24 @@ services:
     environment:
       MP_SMTP_AUTH_ACCEPT_ANY: "1"
       MP_SMTP_AUTH_ALLOW_INSECURE: "1"
+
+  backup:
+    build:
+      context: ./ops
+      dockerfile: Dockerfile.backup
+    restart: unless-stopped
+    environment:
+      PGHOST: db
+      PGDATABASE: investing
+      PGUSER: investing
+      PGPASSWORD: ${POSTGRES_PASSWORD:-investing-local-only}
+      BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-86400}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+    volumes:
+      - ${BACKUP_DIRECTORY:-./backups}:/backups
+    depends_on:
+      db:
+        condition: service_healthy
 
 volumes:
   postgres_data:

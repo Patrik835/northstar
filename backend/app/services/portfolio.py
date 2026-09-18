@@ -4,7 +4,6 @@ import uuid
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
 
-from app.core.config import get_settings
 from app.models.enums import AssetType, TransactionType
 from app.repositories.portfolio import HoldingPositionRow, PortfolioRepository, TransactionRow
 from app.schemas.portfolio import (
@@ -271,17 +270,8 @@ def _calculated_cost(
 
 
 class PortfolioService:
-    def __init__(
-        self,
-        repository: PortfolioRepository,
-        sync_interval_minutes: int | None = None,
-    ) -> None:
+    def __init__(self, repository: PortfolioRepository) -> None:
         self.repository = repository
-        self.sync_interval_minutes = (
-            sync_interval_minutes
-            if sync_interval_minutes is not None
-            else get_settings().portfolio_sync_minutes
-        )
 
     async def dashboard(self, user_id: uuid.UUID) -> DashboardSummary:
         total = await self.repository.total(user_id)
@@ -395,9 +385,7 @@ class PortfolioService:
             ]
             sources: list[HoldingSource] = []
             for row in sorted(instrument_rows, key=lambda item: item.broker.value):
-                freshness = connection_freshness(
-                    row.broker, row.last_synced_at, self.sync_interval_minutes
-                )
+                freshness = connection_freshness(row.broker, row.last_synced_at)
                 valued_at = getattr(row.position, "valued_at", None) or row.last_synced_at
                 source_key = (row.connection_id, _position_source_key(row))
                 relevant_transactions = transactions_by_source.get(source_key, [])

@@ -83,10 +83,11 @@ class AlphaVantageProvider:
             raise AlphaVantageError("Alpha Vantage returned invalid historical data.")
         rate_limit_detail = payload.get("Information") or payload.get("Note")
         if rate_limit_detail:
-            raise AlphaVantageRateLimitError(str(rate_limit_detail))
+            # Provider limit messages can echo the API key. Never propagate them to logs.
+            raise AlphaVantageRateLimitError("Alpha Vantage request limit reached.")
         detail = payload.get("Error Message")
         if detail:
-            raise AlphaVantageError(str(detail))
+            raise AlphaVantageError("Alpha Vantage rejected the market-data request.")
         return payload
 
     @staticmethod

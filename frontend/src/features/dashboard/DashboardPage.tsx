@@ -2,23 +2,21 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "../../api/client";
 import type {
   AllocationItem,
+  ContentSummary,
   DashboardSummary,
+  FeatureStatus,
+  PortfolioReview,
   PortfolioHistoryPoint,
   PortfolioPerformance,
 } from "../../api/types";
 import { EmptyState } from "../../components/EmptyState";
+import { CsvDownloadButton } from "../../components/CsvDownloadButton";
+import { brokerNameFromValue } from "../../domain/brokers";
 import { Link } from "../../routing/Router";
 
 const money = new Intl.NumberFormat("en-IE", {
   style: "currency", currency: "EUR", maximumFractionDigits: 2,
 });
-const sourceLabels: Record<string, string> = {
-  trading212: "Trading 212",
-  trading212_crypto: "Trading 212 Crypto",
-  etoro: "eToro",
-  binance: "Binance",
-  xtb: "XTB",
-};
 const assetLabels: Record<string, string> = {
   stock: "Stocks",
   etf: "ETFs",
@@ -201,7 +199,7 @@ function SourceDonut({ items, total }: { items: AllocationItem[]; total: number 
         {items.map((item, index) => (
           <div key={item.label}>
             <i style={{ backgroundColor: allocationColors[index % allocationColors.length] }} />
-            <span>{sourceLabels[item.label] ?? item.label}</span>
+            <span>{brokerNameFromValue(item.label)}</span>
             <strong>{item.percentage}%</strong>
             <small>{money.format(Number(item.value_eur))}</small>
           </div>
@@ -240,9 +238,18 @@ export function DashboardPage() {
   const [performance, setPerformance] = useState<PortfolioPerformance | null>(null);
   const [performanceError, setPerformanceError] = useState("");
   const [performanceLoading, setPerformanceLoading] = useState(true);
+  const [content, setContent] = useState<ContentSummary | null>(null);
+  const [features, setFeatures] = useState<FeatureStatus | null>(null);
+  const [review, setReview] = useState<PortfolioReview | null>(null);
   useEffect(() => {
     api<DashboardSummary>("/dashboard/summary")
       .then(setSummary).catch((reason: Error) => setError(reason.message));
+    api<ContentSummary>("/content?news_limit=3&event_limit=3&alert_limit=3")
+      .then(setContent).catch(() => undefined);
+    api<FeatureStatus>("/dashboard/features").then((status) => {
+      setFeatures(status);
+      if (status.ai) api<PortfolioReview | null>("/assistant/review").then(setReview).catch(() => undefined);
+    }).catch(() => undefined);
   }, []);
   useEffect(() => {
     const controller = new AbortController();
@@ -304,18 +311,24 @@ export function DashboardPage() {
             <p className="eyebrow">Portfolio history</p>
             <h2>Value and invested amount</h2>
           </div>
-          <div className="history-range-picker" aria-label="Portfolio history range">
-            {rangeOptions.map((option) => (
-              <button
-                className={selectedRange === option.value ? "active" : ""}
-                key={option.value}
-                type="button"
-                aria-pressed={selectedRange === option.value}
-                onClick={() => setSelectedRange(option.value)}
-              >
-                {option.label}
-              </button>
-            ))}
+          <div className="portfolio-history-actions">
+            <CsvDownloadButton
+              path={`/exports/performance.csv?range=${selectedRange}`}
+              disabled={!performance}
+            />
+            <div className="history-range-picker" aria-label="Portfolio history range">
+              {rangeOptions.map((option) => (
+                <button
+                  className={selectedRange === option.value ? "active" : ""}
+                  key={option.value}
+                  type="button"
+                  aria-pressed={selectedRange === option.value}
+                  onClick={() => setSelectedRange(option.value)}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
         {performanceError && <p className="history-message error">{performanceError}</p>}
@@ -357,8 +370,19 @@ export function DashboardPage() {
       </section>
 
       <section className="dashboard-grid overview-secondary-grid">
-        <article className="panel"><p className="eyebrow">AI insight</p><h2>Portfolio review</h2><p className="muted">Enable the OpenAI feature flag to generate cached observations based on your holdings and risk profile.</p><div className="disclaimer">Informational and educational only—not financial advice.</div></article>
-        <article className="panel"><p className="eyebrow">Market pulse</p><h2>Relevant news</h2><p className="muted">Holding-specific news and earnings dates will appear after market news is enabled.</p></article>
+        <article className="panel dashboard-brief-card">
+          <div className="panel-heading"><div><p className="eyebrow">AI insight</p><h2>Portfolio review</h2></div><Link to="/assistant">Open</Link></div>
+          {review ? <><p className="brief-copy">{review.content.split("\n").find(Boolean)}</p><small>Generated {new Date(review.generated_at).toLocaleDateString()}</small></>
+            : <p className="muted">{features?.ai ? "Generate a review from your calculated analytics." : "Available when AI is enabled."}</p>}
+          <div className="disclaimer">Informational and educational only—not financial advice.</div>
+        </article>
+        <article className="panel dashboard-brief-card">
+          <div className="panel-heading"><div><p className="eyebrow">Updates</p><h2>News and calendar</h2></div><Link to="/updates">View all</Link></div>
+          {content?.alerts.some((item) => !item.read_at) && <div className="dashboard-alert-line"><i />{content.unread_alerts} item{content.unread_alerts === 1 ? "" : "s"} need attention</div>}
+          {content?.news.length ? <div className="dashboard-news-list">{content.news.slice(0, 2).map((item) => <a href={item.url} target="_blank" rel="noreferrer" key={item.id}><span>{item.ticker}</span><strong>{item.headline}</strong></a>)}</div>
+            : <p className="muted">Relevant held-company news will appear here.</p>}
+          {content?.events[0] && <small>Next: {content.events[0].title} · {new Date(`${content.events[0].event_date}T12:00:00`).toLocaleDateString()}</small>}
+        </article>
       </section>
     </>
   );

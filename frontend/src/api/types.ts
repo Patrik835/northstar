@@ -20,12 +20,115 @@ export type DashboardSummary = {
   data_notice: string | null;
 };
 
+export type FeatureStatus = {
+  ai: boolean;
+  news: boolean;
+  benchmarks: boolean;
+};
+
+export type NewsItem = {
+  id: string;
+  ticker: string;
+  headline: string;
+  summary: string | null;
+  source: string;
+  image_url: string | null;
+  published_at: string;
+  url: string;
+  is_read: boolean;
+};
+
+export type CalendarEvent = {
+  id: string;
+  ticker: string;
+  event_type: "earnings" | "dividend";
+  event_date: string;
+  title: string;
+  details: Record<string, unknown>;
+  source_url: string | null;
+};
+
+export type PortfolioAlert = {
+  id: string;
+  alert_type: "stale_connection" | "sync_failure" | "allocation_drift" | "event";
+  severity: "info" | "warning" | "error";
+  title: string;
+  message: string;
+  source_url: string | null;
+  event_at: string | null;
+  read_at: string | null;
+  created_at: string;
+};
+
+export type PortfolioNewsBrief = {
+  id: string;
+  brief_date: string;
+  generated_at: string;
+  model_used: string;
+  positions_count: number;
+  selected_news_ids: string[];
+  highlights: Array<{
+    title: string;
+    summary: string;
+    tickers: string[];
+    news_ids: string[];
+  }>;
+};
+
+export type ContentSummary = {
+  news: NewsItem[];
+  events: CalendarEvent[];
+  alerts: PortfolioAlert[];
+  unread_news: number;
+  unread_alerts: number;
+  brief: PortfolioNewsBrief | null;
+};
+
+export type NotificationPreference = {
+  email_digest_enabled: boolean;
+  digest_frequency: "daily" | "weekly";
+  email_available: boolean;
+  email: string | null;
+  email_verified: boolean;
+  last_digest_at: string | null;
+};
+
+export type PortfolioReview = {
+  id: string;
+  content: string;
+  model_used: string;
+  context_version: string | null;
+  context_hash: string | null;
+  calculation_references: Array<{ id: string; label: string; source: string }>;
+  generated_at: string;
+  cached: boolean;
+};
+
+export type ChatMessage = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  created_at: string;
+};
+
+export type Conversation = {
+  id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  messages: ChatMessage[];
+};
+
 export type Broker =
   | "trading212"
   | "trading212_crypto"
   | "etoro"
   | "binance"
-  | "xtb";
+  | "bybit"
+  | "interactive_brokers"
+  | "xtb"
+  | "trade_republic"
+  | "scalable_capital";
 
 export type Connection = {
   id: string;
@@ -43,6 +146,8 @@ export type Connection = {
 
 export type ConnectionGuide = {
   broker: Broker;
+  display_name: string;
+  short_mark: string;
   connection_type: "api" | "csv";
   category: string;
   description: string;
@@ -51,6 +156,16 @@ export type ConnectionGuide = {
   security_notice: string;
   setup_steps: string[];
   tutorial_url: string;
+  sync_frequency_label: string | null;
+  file_import: {
+    endpoint: string;
+    accept: string;
+    multiple: boolean;
+    prompt: string;
+    help_text: string;
+    empty_file_message: string;
+    holding_label: string;
+  } | null;
 };
 
 export type StatementImportResult = {

@@ -38,9 +38,44 @@ class ResendVerificationRequest(BaseModel):
     email: EmailStr
 
 
+class AccountEmailRequest(BaseModel):
+    email: EmailStr
+
+
 class PasswordChangeRequest(BaseModel):
     current_password: str = Field(min_length=8, max_length=256)
     new_password: str = Field(min_length=12, max_length=256)
+
+
+class PasswordResetRequest(BaseModel):
+    email: EmailStr
+
+
+class PasswordResetConfirmRequest(BaseModel):
+    token: str = Field(min_length=32, max_length=256)
+    new_password: str = Field(min_length=12, max_length=256)
+    password_confirmation: str = Field(min_length=12, max_length=256)
+
+    @model_validator(mode="after")
+    def passwords_match(self) -> "PasswordResetConfirmRequest":
+        if self.new_password != self.password_confirmation:
+            raise ValueError("Passwords do not match")
+        return self
+
+
+class AccountPasswordRequest(BaseModel):
+    current_password: str = Field(min_length=8, max_length=256)
+
+
+class AccountDeletionRequest(AccountPasswordRequest):
+    confirmation: str
+
+    @field_validator("confirmation")
+    @classmethod
+    def confirmation_is_explicit(cls, value: str) -> str:
+        if value != "DELETE":
+            raise ValueError('Enter "DELETE" to confirm permanent account deletion')
+        return value
 
 
 class MessageResponse(BaseModel):

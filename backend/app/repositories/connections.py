@@ -37,10 +37,10 @@ class ConnectionRepository:
             )
         )
 
-    async def syncable_live(self) -> list[BrokerConnection]:
+    async def syncable_live(self, brokers: tuple[Broker, ...]) -> list[BrokerConnection]:
         result = await self.db.scalars(
             select(BrokerConnection).where(
-                BrokerConnection.broker.in_((Broker.TRADING212, Broker.BINANCE, Broker.ETORO)),
+                BrokerConnection.broker.in_(brokers),
                 BrokerConnection.status != ConnectionStatus.DISABLED,
             )
         )

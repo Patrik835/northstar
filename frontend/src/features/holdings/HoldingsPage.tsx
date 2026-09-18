@@ -9,6 +9,8 @@ import type {
   HoldingsResponse,
 } from "../../api/types";
 import { EmptyState } from "../../components/EmptyState";
+import { CsvDownloadButton } from "../../components/CsvDownloadButton";
+import { brokerName } from "../../domain/brokers";
 import { Link } from "../../routing/Router";
 
 const eur = new Intl.NumberFormat("en-IE", {
@@ -17,13 +19,6 @@ const eur = new Intl.NumberFormat("en-IE", {
   maximumFractionDigits: 2,
 });
 const quantity = new Intl.NumberFormat("en-IE", { maximumFractionDigits: 8 });
-const brokerLabels: Record<Broker, string> = {
-  trading212: "Trading 212",
-  trading212_crypto: "Trading 212 Crypto",
-  etoro: "eToro",
-  binance: "Binance",
-  xtb: "XTB",
-};
 const assetLabels: Record<AssetType, string> = {
   stock: "Stock",
   etf: "ETF",
@@ -62,10 +57,6 @@ function originalMoney(value: string, currency: string) {
   } catch {
     return `${quantity.format(number)} ${currency}`;
   }
-}
-
-function brokerLabel(broker: Broker) {
-  return brokerLabels[broker] ?? broker;
 }
 
 function timestamp(value: string | null) {
@@ -333,6 +324,13 @@ export function HoldingsPage() {
       });
   }, [assetGroup, scopedHoldings, search, sortDirection, sortKey]);
 
+  const exportPath = useMemo(() => {
+    const params = new URLSearchParams({ asset_group: assetGroup });
+    if (platform !== "all") params.set("broker", platform);
+    if (search.trim()) params.set("search", search.trim());
+    return `/exports/holdings.csv?${params.toString()}`;
+  }, [assetGroup, platform, search]);
+
   function changeSort(nextKey: SortKey) {
     if (sortKey === nextKey) {
       setSortDirection((current) => (current === "desc" ? "asc" : "desc"));
@@ -383,18 +381,21 @@ export function HoldingsPage() {
             One clean view of every asset, with each broker position preserved underneath.
           </p>
         </div>
-        <span className={`as-of holdings-as-of${staleConnectionCount ? " stale" : ""}`}>
-          <span className="freshness-dot" />
-          <span>
-            {scopedAsOf ? `Updated ${timestamp(scopedAsOf)}` : "Awaiting first valuation"}
-            <small>Values in EUR</small>
+        <div className="page-header-actions">
+          <CsvDownloadButton path={exportPath} disabled={!portfolio} />
+          <span className={`as-of holdings-as-of${staleConnectionCount ? " stale" : ""}`}>
+            <span className="freshness-dot" />
+            <span>
+              {scopedAsOf ? `Updated ${timestamp(scopedAsOf)}` : "Awaiting first valuation"}
+              <small>Values in EUR</small>
+            </span>
+            {staleConnectionCount > 0 && (
+              <em>
+                {staleConnectionCount} stale source{staleConnectionCount === 1 ? "" : "s"}
+              </em>
+            )}
           </span>
-          {staleConnectionCount > 0 && (
-            <em>
-              {staleConnectionCount} stale source{staleConnectionCount === 1 ? "" : "s"}
-            </em>
-          )}
-        </span>
+        </div>
       </header>
 
       {error && <p className="error">{error}</p>}
@@ -419,7 +420,7 @@ export function HoldingsPage() {
           aria-controls="holdings-instruments"
           onClick={() => setAssetGroup("all")}
         >
-          <span>{platform === "all" ? "Combined portfolio" : brokerLabel(platform)}</span>
+          <span>{platform === "all" ? "Combined portfolio" : brokerName(platform)}</span>
           <strong>{portfolio ? eur.format(selectedTotal) : "—"}</strong>
           <small>
             {platform === "all" ? "Across every connected platform" : "Platform value"}
@@ -474,7 +475,7 @@ export function HoldingsPage() {
                   className={platform === source.label ? "active" : ""}
                   onClick={() => setPlatform(source.label as Broker)}
                 >
-                  {brokerLabel(source.label as Broker)}
+                  {brokerName(source.label as Broker)}
                   <small>{source.percentage}%</small>
                 </button>
               ))}
@@ -584,7 +585,7 @@ export function HoldingsPage() {
                           className={`source-badge ${source.broker}`}
                           key={`${source.connection_id}:${source.provider_instrument_id}`}
                         >
-                          {brokerLabel(source.broker)}
+                          {brokerName(source.broker)}
                         </span>
                       ))}
                     </span>
@@ -731,7 +732,7 @@ function HoldingDetails({ holding }: { holding: ScopedHolding }) {
             <header>
               <span className={`source-dot ${source.broker}`} />
               <div>
-                <strong>{brokerLabel(source.broker)}</strong>
+                <strong>{brokerName(source.broker)}</strong>
                 <small>{source.provider_symbol}</small>
               </div>
               <strong>{eur.format(sourceValue(source))}</strong>

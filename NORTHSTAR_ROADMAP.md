@@ -1,7 +1,8 @@
 # Northstar Investment OS — Requirements Refresh and Kanban Roadmap
 
-> Updated 2026-08-08: the stock/ETF/crypto foundation now includes Trading 212,
-> Binance, eToro, Trading 212 Crypto files, and native XTB statement imports. Items
+> Updated 2026-08-16: the stock/ETF/crypto foundation now includes Trading 212,
+> Binance, eToro, Interactive Brokers Flex, Bybit files, Trading 212 Crypto files, and native
+> XTB, Trade Republic, and Scalable Capital statement imports. Items
 > explicitly marked partial still need follow-up tickets.
 
 ## Summary
@@ -60,6 +61,9 @@ This direction matches the strongest capabilities offered by mature trackers: ge
 - Native XTB CSV/XLSX imports for current stock/ETF holdings, explicit cash, P/L, closed
   positions, cash operations, and fees, with canonical aliases, EUR conversion, valuation
   provenance, overlap-safe deduplication, and history-only preservation.
+- Native Trade Republic and Scalable Capital transaction CSV imports with broad locale
+  handling, overlap-safe deduplication, trades/distributions/charges, ISIN-based canonical
+  matching, reconstructed quantities and cost, and explicitly estimated last-trade values.
 - Compact connected-source management plus a searchable/filterable source directory designed to accommodate additional brokers and import types.
 - Connection setup guides, encrypted credential storage, masked hints, secure reconnect,
   and deletion.
@@ -67,9 +71,16 @@ This direction matches the strongest capabilities offered by mature trackers: ge
 - Dashboard current total plus source and asset allocation. Historical performance APIs
   exist, but their overview presentation is deferred for a data-model and UX redesign.
 - Core database tables for positions, transactions, snapshots, news, recommendations, and chat history.
-- Sixty-nine backend tests currently pass, including crypto/XTB file parsing and import,
+- Finnhub held-ticker news/calendar ingestion, user read state, deterministic alerts,
+  optional email digests, versioned portfolio context, cached AI reviews, and tenant-scoped
+  streaming conversations with safety controls.
+- Password recovery, database-backed authentication throttling, password-confirmed account
+  export/deletion, structured operational monitoring, verified PostgreSQL backups, CI, and
+  desktop/mobile browser and accessibility release tests.
+- Backend tests cover crypto, Bybit, XTB, Trade Republic, and Scalable Capital file
+  parsing and import alongside
   canonical matching, holdings aggregation, sync-run state handling, and mocked Binance,
-  eToro, ECB, and public crypto-price contracts; frontend lint and the production build
+  Interactive Brokers, eToro, ECB, and public crypto-price contracts; frontend lint and the production build
   also pass.
 
 ### Partially Implemented
@@ -90,8 +101,10 @@ This direction matches the strongest capabilities offered by mature trackers: ge
 - Asset-type allocation is returned by the API but not displayed.
 - Performance is bounded by stored daily valuations and imported cash-flow coverage;
   historical non-EUR activity without a stored conversion is explicitly marked partial.
-- AI, news, and benchmark adapters exist only as interfaces/placeholders.
-- Public signup exists, but production-grade recovery, IP-aware throttling, 2FA, privacy controls, and abuse protection do not.
+- Finnhub dividend dates remain dependent on a paid endpoint; earnings and company-news
+  availability follow the configured Finnhub plan and regional symbol coverage.
+- Optional TOTP and formal consent/retention records remain post-launch privacy and security
+  hardening; recovery, IP/account throttling, export, and deletion are implemented.
 
 ### Still Missing From Existing Requirements
 
@@ -103,8 +116,8 @@ This direction matches the strongest capabilities offered by mature trackers: ge
 - Recent activity feed.
 - News and earnings calendar.
 - AI recommendations and portfolio-aware chat.
-- Background-job health, stuck-run recovery, deeper observability, and notifications.
-- Login rate limiting beyond account lockout.
+- Stuck-run recovery and external production alert routing beyond the persisted operations
+  view and Prometheus-compatible metrics.
 - Responsive/mobile-quality web UX and broader automated testing.
 
 ## Requirements and Interface Changes
@@ -155,9 +168,21 @@ All implementation tickets should target approximately 1–3 working days and in
 21a. [x] Support and validate XTB's native three-sheet CSV/XLSX reports for current
      positions, P/L, and activity; exclude CFDs and preserve current holdings on
      history-only imports.
+21b. [x] Support Trade Republic's native transaction CSV with trades, distributions,
+     charges, canonical ISINs, reconstructed holdings/cost, overlap-safe re-import, and
+     visibly estimated last-trade valuation.
+21c. [x] Support Scalable Capital's native transaction CSV with trades, distributions,
+     charges, canonical ISINs, reconstructed holdings/cost, overlap-safe re-import, and
+     visibly estimated last-trade valuation.
 22. [removed] Do not provide generic transaction templates; supported imports should accept the provider's native export without user reformatting.
 23. [moved] Reserve manual entry for the Phase 4 diversified-asset model in item 63, beginning with real estate rather than manually maintained stocks or crypto.
 24. [x] Add automatic source-total reconciliation where a live provider exposes an independent account total, warning only beyond both 3% and EUR 5. Providers without an independent total remain silent; Trading 212 Crypto overlap deduplication stays automatic.
+24a. [x] Replace the blocked Bybit EU API flow with a multi-file native CSV/XLSX import
+     for exported balances, Spot activity, fees, transfers, and supported income. Prefer
+     exported cash balances, estimate only when necessary, deduplicate overlaps, and erase
+     obsolete API credentials on first import.
+24b. [x] Add a reporting-only Interactive Brokers Activity Flex connector for positions,
+     cash, P/L, activity, NAV reconciliation, daily sync, and provider-aware freshness.
 
 ### Milestone 2 — Portfolio Analytics and Usable Dashboard
 
@@ -178,33 +203,43 @@ All implementation tickets should target approximately 1–3 working days and in
 39. [partial] Add estimated drawdown and volatility from cash-flow-adjusted available history plus current concentration, effective-holdings, and diversification metrics. Reconstructed history and unresolved internal transfers remain explicitly partial.
 40. [removed] ETF look-through was removed by product decision to keep Analytics focused and avoid incomplete constituent coverage.
 41. [x] Add target-allocation editing, drift, target value, and educational add/reduce illustrations without presenting them as personalized advice.
-42. Add CSV export for holdings, transactions, performance, and income.
+42. [x] Add authenticated CSV exports for holdings, transactions, performance, and
+    income. Holdings and Activity exports follow the current page filters, performance
+    follows the selected chart range, and spreadsheet-bound text is protected from
+    formula execution.
 
 ### Milestone 3 — News, Alerts, and Grounded AI
 
-43. Implement Finnhub company-news ingestion with deduplication and user/ticker linking.
-44. Add earnings and dividend calendar events for held instruments.
-45. Build dashboard news/calendar cards with source links and read state.
-46. Add in-app alerts for stale connections, sync failures, allocation drift, and upcoming events.
-47. Add optional email notification preferences and digest delivery.
-48. Build a versioned portfolio-context service from deterministic analytics.
-49. Implement cached AI portfolio reviews with timestamps and calculation references.
-50. Implement persisted AI conversations with history loading and deletion.
-51. Build the enabled chat UI with streaming/error states and strict tenant isolation.
-52. Add prompt-injection protections, usage limits, redaction, disclaimers, and AI evaluation cases.
+43. [x] Implement Finnhub company-news ingestion with deduplication and user/ticker linking.
+44. [x] Add earnings and supported dividend calendar events for held instruments. Dividend coverage depends on the configured Finnhub subscription.
+45. [x] Build restrained dashboard news/calendar previews plus a dedicated source-linked Updates page with read state, an AI-ranked daily top ten, and a three-item 24-hour portfolio brief generated from minimized all-holdings context.
+46. [x] Add deduplicated in-app alerts for stale connections, sync failures, material allocation drift, and upcoming events.
+47. [x] Add opt-in daily/weekly email notification preferences and compact digest delivery.
+48. [x] Build and persist a hashed, versioned, redacted portfolio context from deterministic holdings and analytics.
+49. [x] Implement context-hash-cached AI portfolio reviews with timestamps and calculation references.
+50. [x] Implement tenant-scoped conversations with persisted history loading and deletion.
+51. [x] Build the enabled assistant UI with server-sent streaming, loading, and safe error states.
+52. [x] Add moderation, prompt-injection guards, per-user usage limits, context redaction, provider storage opt-out, disclaimers, and AI safety evaluation cases.
 
 ### Public-Release Security and Operations Gate
 
-53. Add IP- and username-aware authentication rate limiting with trusted-proxy handling.
-54. Add secure email-based password reset and session revocation.
+53. [x] Add database-backed IP- and username-aware authentication rate limiting; nginx
+    discards untrusted forwarding chains before requests reach the API.
+54. [x] Add secure email-based password reset with hashed, expiring, single-use tokens
+    and revocation of every existing session after reset.
 55. Add optional TOTP two-factor authentication and recovery codes.
-56. Add account data export and permanent account deletion.
+56. [x] Add password-confirmed account JSON export and permanent account deletion, with
+    saved secrets excluded and deletion of the sole active administrator prevented.
 57. Add privacy/consent records, retention rules, and GDPR-facing documentation.
 58. Add security audit events without logging credentials or portfolio prompt contents.
-59. Add scheduler/job monitoring, structured logs, health metrics, and admin failure visibility.
-60. Add automated PostgreSQL backup plus documented and tested restore procedure.
-61. Add CI for migrations, backend tests, frontend build/lint, and dependency auditing.
-62. Add responsive navigation, loading/error/empty states, keyboard accessibility, and browser E2E coverage.
+59. [x] Add persisted scheduler/job monitoring, structured request logs, liveness/readiness,
+    token-protected Prometheus metrics, backup age, and admin failure visibility.
+60. [x] Add daily verified PostgreSQL backups with retention plus guarded restore and
+    disposable-database restore smoke-test procedures.
+61. [x] Add CI for reversible migrations, backend tests/lint/audit, frontend build/lint/audit,
+    browser flows, accessibility checks, and backup restore testing.
+62. [x] Add skip navigation, visible keyboard focus, reduced-motion support, responsive
+    account controls, accessible status states, and desktop/mobile browser E2E coverage.
 
 ### Later — Diversified Investment OS
 

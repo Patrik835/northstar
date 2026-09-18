@@ -1,6 +1,6 @@
 # Northstar Investment OS — Product and Technical Requirements
 
-> Last reviewed: 2026-08-08
+> Last reviewed: 2026-08-16
 
 > Detailed implementation backlog: [NORTHSTAR_ROADMAP.md](NORTHSTAR_ROADMAP.md)
 
@@ -61,8 +61,9 @@ required outcome of each product phase.
 
 ### Phase 1 — Trustworthy Stock, ETF, and Crypto Core
 
-- Production-ready Trading 212, Binance Spot, and eToro read-only connections, plus a
-  native XTB statement-import connector because XTB no longer offers a public API.
+- Production-ready Trading 212, Binance Spot, eToro, and Interactive Brokers read-only
+  connections, plus provider-native imports for Bybit, XTB, Trade Republic, and Scalable
+  Capital where no safe supported retail investment API is available.
 - Periodic position/value synchronization every 60–120 minutes, defaulting to 120
   minutes, plus user-triggered refresh.
 - Current eToro positions, cash, value, and broker-reported P&L plus retained month-end snapshots.
@@ -70,7 +71,8 @@ required outcome of each product phase.
 - Dated ECB FX rates and EUR conversion while preserving original currencies.
 - Complete, resumable transaction imports with automatic deduplication and reconciliation.
 - Provider-specific file import only where a valuable account cannot be connected through
-  an official supported API, initially Trading 212 Crypto and XTB.
+  an official supported API, initially Trading 212 Crypto, XTB, Trade Republic, and
+  Scalable Capital.
 - Visible freshness, sync progress, partial-import warnings, and safe error recovery.
 
 ### Phase 2 — Portfolio Analytics and Dashboard
@@ -267,7 +269,35 @@ errors; provider-specific payloads do not leak into route handlers or the fronte
 - Refresh with other live connections and retain a reliable last-trading-day snapshot
   for each month.
 
-### 6.5 Provider-Specific File Data
+### 6.5 Bybit
+
+- Do not request API credentials while Bybit EU limits API connections to approved
+  third-party applications.
+- Accept multiple native Account Change Details, Spot Trade History, and funding-history
+  CSV files together; also accept equivalent XLSX sheets without user conversion.
+- Deduplicate repeated and overlapping exports using provider transaction/trade IDs.
+- Prefer exported per-asset cash balances for quantities. When they are absent, reconstruct
+  holdings from activity and label the result as estimated.
+- Import Spot buys/sells, fees, deposits, withdrawals, and supported income; value current
+  crypto holdings in EUR through the shared public market-rate service.
+- The first statement import replaces any obsolete encrypted Bybit API key retained from
+  an earlier application version.
+
+### 6.6 Interactive Brokers
+
+- Use the official reporting-only Flex Web Service with a token and Activity Flex Query
+  ID; never request or store an IBKR username, password, or trading session.
+- Require XML containing Open Positions, Cash Report, Change in NAV, execution-level
+  Trades, and Cash Transactions. Import positions, native-currency cash, average cost,
+  unrealized P/L, trades, commissions, dividends, and deposits/withdrawals where present.
+- Preserve contract IDs and ISINs as provider aliases and canonical identifiers.
+- Generate/retrieve reports through the documented two-step workflow, poll boundedly while
+  a report is being prepared, and handle expired tokens, IP restrictions, invalid queries,
+  report-size limits, and pacing errors safely.
+- Synchronize once daily because Activity Flex data updates once per day; consider it stale
+  after 48 hours. Manual refresh remains available.
+
+### 6.7 Provider-Specific File Data
 
 - File import is used selectively when an important provider account has no usable official API;
   Northstar does not ask users to maintain generic stock or crypto records manually.
@@ -284,11 +314,17 @@ errors; provider-specific payloads do not leak into route handlers or the fronte
   converts values to EUR; and deduplicates overlapping activity. A history-only upload adds
   activity without erasing the last imported current-position snapshot. CFDs and other
   non-stock/ETF products are intentionally skipped with a visible warning.
+- Trade Republic and Scalable Capital accept their native transaction CSV exports. Imports
+  retain supported buys, sells, dividends/distributions, fees, and taxes; deduplicate
+  overlapping exports; rebuild open quantity and moving-average cost; and resolve canonical
+  instruments through verified ISINs. Because transaction exports do not report live
+  positions, current values and open P/L use the latest imported trade price and must remain
+  visibly marked as estimated.
 - Manual entry is reserved for Phase 4 assets that are naturally manually valued, starting
   with real estate. Unsupported stock/ETF/crypto brokers are not represented through
   generic manual holdings or transaction forms.
 
-### 6.6 Synchronization Policy
+### 6.8 Synchronization Policy
 
 - `PORTFOLIO_SYNC_MINUTES` is configurable, defaults to `120`, and should be kept between
   `60` and `120` for the initial deployment unless provider limits require a slower rate.
@@ -374,6 +410,11 @@ errors; provider-specific payloads do not leak into route handlers or the fronte
   currently held instruments.
 - Items are deduplicated, linked only to relevant users, and retain headline, source,
   URL, ticker, and publication time.
+- A cached daily portfolio-news pipeline ranks up to ten important articles and produces
+  three concise, source-linked summaries of the biggest developments in the last 24 hours.
+- Ranking context covers every aggregated holding but is minimized to symbol, name, asset
+  type, and portfolio weight; it excludes credentials, account IDs, quantities, notes, and
+  absolute values. Generated article IDs are validated against the user's linked news.
 - Provider failures do not block the core portfolio experience.
 
 ### 9.2 AI Requirements
@@ -450,28 +491,33 @@ Status meanings:
 | Tenant-scoped repositories and protected routes | Complete | User-scoped connections/portfolio queries and admin dependency exist; broader endpoint coverage needs regression tests as features grow. |
 | Public registration and email verification | Complete | Register, verify, resend, and UI flows exist; signup defaults on. |
 | Login sessions, password hashing/change, account lockout | Complete | Opaque cookie sessions, Argon2, password change, and five-attempt lockout exist. |
-| Public-release auth/privacy hardening | Planned | IP throttling, reset flow, optional 2FA, privacy controls, export, and deletion remain. |
+| Public-release auth/privacy hardening | Partial | Database-backed IP/account throttling, enumeration-safe email recovery, hashed single-use reset tokens, full session revocation, password-confirmed JSON export, and permanent deletion are implemented. Optional TOTP and formal consent/retention records remain post-launch hardening. |
 | Admin user management | Complete | Admin can list and create users. |
 | Encrypted broker credentials and setup guides | Complete | AES-256-GCM, masked hints, read-only guidance, deletion, and provider-validated credential replacement exist. Reconnect responses/forms never expose or prefill saved secrets. |
 | Multiple labelled accounts per provider | Deferred | Launch intentionally permits one connection per user/provider. Revisit only after demonstrated demand. |
 | Trading 212 current positions, cash, recent activity, and snapshot | Partial | Live connector, canonical instruments with provider-verified stock/ETF types, per-position and snapshot unrealized P/L, EUR conversion, source-total reconciliation, rate-limit-aware retry, paginated orders/dividends/cash history, resumable per-stream cursors, and idempotency coverage work. Real-account backfill verification remains. |
 | Binance Spot connector | Partial | Signed read-only authentication, Spot balances, EUR valuation, discoverable Spot-pair trades, trade/withdrawal fees, completed deposits/withdrawals, asset distributions, stable deduplication, one-time upgrade backfill, snapshots, refresh/scheduling, and mocked contracts exist. Real-account reconciliation and Binance's symbol-constrained fully sold-out/full-history gap remain. |
+| Bybit native file import | Complete | API-key setup is removed for EU compatibility. Multiple native Account Change Details, Spot Trade History, and funding-history CSV/XLSX files can be uploaded together; provider IDs make overlapping imports safe. Exported balances are preferred, activity-only holdings are visibly estimated, current crypto values use shared EUR market conversion, and an import erases obsolete stored Bybit API credentials. Derivatives and PDF account statements remain out of scope. |
+| Interactive Brokers connector | Partial | Reporting-only Flex token authentication, bounded report generation/retrieval, XML positions/cash/average cost/P&L, trades/commissions/dividends/cash movements, canonical IDs, independent NAV, daily scheduling, 48-hour freshness, and mocked contracts are implemented. A real-account Flex Query smoke test and coverage across all IBKR asset/report variants remain. |
 | eToro periodic connector and month-end history | Partial | Public API authentication, aggregate positions/cash/copy value, instrument metadata, dedicated Real-account P&L enrichment, provider/EUR P&L persistence, source-total reconciliation, current and historical opening buys, closed-trade exits, valuations, versioned backfill, manual/periodic/month-end sync, and mocked contracts exist. The official API does not expose a dividend ledger; broader history reconciliation and exact coverage of every eToro product remain. |
-| Provider-specific file data | Complete | Trading 212 Crypto CSV and native XTB CSV/XLSX imports validate atomically, prevent duplicate activity, preserve valuation provenance, and support repeat imports. XTB's native three-sheet workbook is verified for current stock/ETF positions, P/L, closed-position activity, cash operations, fees/tax, canonical metadata, and history-only preservation. Generic stock/crypto files and manual entry remain intentionally out of scope. |
-| Canonical instruments and broker aliases | Complete | Global instruments retain ISIN/symbol identity while provider aliases preserve Trading 212 Invest, Trading 212 Crypto, Binance, eToro, and XTB identifiers. Sync/import resolution combines matching securities and crypto across platforms. |
-| Automatic data-quality and reconciliation | Partial | Trading 212 and eToro synchronization silently compare imported holdings against independently reported provider totals and warn only beyond both 3% and EUR 5. Binance has no independent comparison total; Trading 212 Crypto overlap deduplication remains automatic. Broader transaction-level reconciliation remains. |
+| Provider-specific file data | Complete | Trading 212 Crypto CSV, native XTB CSV/XLSX, and native Trade Republic/Scalable Capital transaction CSV imports validate atomically, prevent duplicate activity, preserve valuation provenance, and support repeat imports. XTB supplies current position/P&L data; Trade Republic and Scalable rebuild holdings and clearly mark last-trade valuations as estimates. Generic stock/crypto files and manual entry remain intentionally out of scope. |
+| Canonical instruments and broker aliases | Complete | Global instruments retain ISIN/symbol identity while provider aliases preserve Trading 212 Invest, Trading 212 Crypto, Binance, Bybit, Interactive Brokers, eToro, XTB, Trade Republic, and Scalable Capital identifiers. Sync/import resolution combines matching securities and crypto across platforms. |
+| Automatic data-quality and reconciliation | Partial | Trading 212, Interactive Brokers, and eToro synchronization silently compare imported holdings against independently reported provider totals and warn only beyond both 3% and EUR 5. Binance has no independent comparison total; Bybit and Trading 212 Crypto overlap deduplication remains automatic. Broader transaction-level reconciliation remains. |
 | FX conversion and historical market-data cache | Complete | ECB working-day rates are fetched, persisted by publication date, cached in-process and across processes, looked up by date, converted through EUR, and backed by the newest stored rate set during temporary ECB failures. Alpha Vantage weekly equity and USD/EUR series are persisted for reconstructed history; calls are paced, stop cleanly on provider limits, prioritize larger holdings, and resume on daily runs. |
-| Scheduled synchronization | Partial | APScheduler refreshes Trading 212, Binance, and eToro every 120 minutes by default and adds eToro month-end and daily ECB runs. Connection syncs persist running/success/partial/error status, triggers, counts, timestamps, and safe details. Safe GET requests use bounded exponential backoff for transient failures and honor provider cooldown headers; stuck-run recovery and distributed-worker safety remain. |
-| Connection freshness visibility | Complete | Connection cards distinguish fresh, stale, and never-synchronized sources, show the last successful sync/import, preserve it across failures, and show the latest failed attempt. Live sources become stale after 24 hours; XTB and Trading 212 Crypto remain explicitly labelled as imported statements. |
+| Scheduled synchronization | Partial | APScheduler refreshes Trading 212, Binance, and eToro every 120 minutes by default, runs Interactive Brokers Flex daily, and adds eToro month-end and daily ECB runs. Bybit is updated only through native file imports. Connection syncs persist running/success/partial/error status, triggers, counts, timestamps, and safe details. Safe GET requests use bounded exponential backoff for transient failures and honor provider cooldown headers; stuck-run recovery and distributed-worker safety remain. |
+| Connection freshness visibility | Complete | Connection cards distinguish fresh, stale, and never-synchronized sources, show the last successful sync/import, preserve it across failures, and show the latest failed attempt. Intraday live sources become stale after 24 hours and daily IBKR data after 48 hours; XTB, Trading 212 Crypto, Trade Republic, and Scalable Capital remain explicitly labelled as imported statements. |
 | Goals, risk tolerance, and time horizon | Complete | Profile API and UI are functional. |
 | Basic portfolio summary | Complete | EUR total, position count, connected-source count, source allocation, asset allocation, and a responsive total-value/invested-amount history chart are available on the overview. Every fixed range remains selectable; observed daily snapshots and explicitly labelled reconstructed weekly estimates use distinct requested periods and show their actual available dates. |
 | Consolidated and per-platform holdings | Complete | A searchable responsive holdings page groups stocks/ETFs, crypto, cash, and other assets; supports value/open-P&L sorting; shows valuation freshness and source-native details; prioritizes provider-reported open P/L with fully reconciled calculations only as fallback; and links recent activity. Expanded detail reports average-cost realized gain, imported income, fees, and total return only where history coverage supports them. Metadata persistence exists, but category/tag/note/target controls are deliberately hidden to keep holding detail simple. |
 | Scalable source-management UI | Complete | Connected sources use compact management rows; a searchable/filterable directory separates live API connections from file imports and scales without one oversized setup card per provider. |
 | Transactions, daily history, and core performance | Partial | Unified filterable activity converts totals to EUR using stored dated ECB rates, falling back transparently to the latest fiat or crypto market rate when exact historical conversion is unavailable. A non-tax weighted-average ledger retains realized results across sales and reinvestment, separates open P/L, imported income, and fees, and marks incomplete transaction/FX coverage instead of publishing incomplete total returns. Observed daily snapshots plus Alpha Vantage-backed weekly reconstruction power distinct 1W–all Overview ranges and two value/invested lines; reconstructed periods are visibly estimated. XIRR, TWR, and attribution backend foundations exist. |
+| Holdings, transactions, income, and performance CSV exports | Complete | Authenticated downloads are available from the relevant Holdings, Activity, and Overview contexts. Holdings and activity retain active filters, performance retains the selected range, original/EUR values and coverage fields are included, and spreadsheet formula injection is prevented without changing numeric values. |
 | Portfolio analytics workspace | Partial | A dedicated responsive page provides six current allocation dimensions, current open-P/L leaders and contribution, persisted cached-ETF benchmark selection, drawdown/volatility/concentration/diversification, and target drift/rebalancing arithmetic. Sector and geography prefer verified metadata and fall back to deterministic mappings for known symbols, industries, ETF mandates, and ISIN countries. Unknown classifications and incomplete long-range history remain visibly partial rather than guessed. Dividend analytics and ETF look-through were deliberately removed to keep this workspace focused. |
-| News and financial calendar | Planned | Finnhub interface and scheduler placeholder exist. |
-| AI recommendations and portfolio chat | Planned | Tables, provider shell, feature flags, and placeholder UI exist. |
-| Raspberry Pi deployment | Partial | Compose/nginx/health setup exists; production backup, monitoring, TLS-edge configuration validation, and restore testing remain. |
+| News, financial calendar, and alerts | Complete | Daily feature-flagged Finnhub ingestion deduplicates held-ticker news and earnings, imports dividend dates when the subscription exposes them, and links content per user. A cached tenant-scoped AI pass uses minimized all-holdings context to rank today's top ten and summarize three source-linked portfolio developments from the last 24 hours. Compact dashboard/Updates views retain read state; persisted alerts cover stale/failed sources, material target drift, and upcoming events. |
+| Email notification digests | Complete | Verified-email users can opt into a daily or weekly digest of unread alerts, upcoming events, and held-company news; delivery is disabled by default and records its last successful run. |
+| Grounded AI reviews and portfolio chat | Complete | A hashed versioned context contains redacted deterministic analytics and calculation references. Responses API calls disable provider storage and use privacy-preserving safety IDs; reviews are cached, conversations are tenant-scoped and deletable, chat streams, and moderation, injection guards, per-user limits, disclaimers, and evaluation cases are implemented. |
+| Release engineering and accessibility | Complete | CI verifies reversible migrations, backend tests/lint/dependencies, frontend lint/build/dependencies, a real-container account lifecycle, desktop/mobile browser behavior, serious/critical accessibility violations, and a disposable-database backup restore. Global skip navigation, visible focus, reduced-motion handling, and accessible loading/error/status states are present. |
+| Raspberry Pi deployment | Partial | Compose/nginx, liveness/readiness, token-protected metrics, structured logs, admin job visibility, daily verified PostgreSQL backup, retention, guarded restore, and restore smoke testing exist. The deployment still relies on the external Cloudflare edge for TLS and edge-level abuse controls, which must be validated in the production environment. |
 | Generic assets and real estate | Future | Phase 4 after the stock/ETF/crypto data foundation. |
 | Multiple portfolios and household sharing | Future | POC intentionally uses one implicit portfolio per user. |
 | European tax modules | Future | Explicitly excluded until transaction/tax-lot data is mature. |

@@ -26,8 +26,6 @@ logger = logging.getLogger(__name__)
 
 GENERIC_SYNC_ERROR = "The broker data could not be imported. Please try again."
 MAX_BACKFILL_PAGES_PER_STREAM = 5
-BINANCE_ACTIVITY_CURSOR = "binance-activity-v1"
-ETORO_ACTIVITY_CURSOR = "etoro-activity-v2"
 RECONCILIATION_PERCENT_THRESHOLD = Decimal("3")
 RECONCILIATION_ABSOLUTE_THRESHOLD_EUR = Decimal("5")
 
@@ -61,12 +59,10 @@ def reconciliation_result(
 
 
 def _broker_label(broker: Broker) -> str:
-    return {
-        Broker.TRADING212: "Trading 212",
-        Broker.TRADING212_CRYPTO: "Trading 212 Crypto",
-        Broker.ETORO: "eToro",
-        Broker.BINANCE: "Binance",
-    }[broker]
+    try:
+        return ConnectorRegistry().definition(broker).display_name
+    except ValueError:
+        return broker.value.replace("_", " ").title()
 
 
 class ConnectionSyncService:
@@ -75,10 +71,12 @@ class ConnectionSyncService:
         db: AsyncSession,
         cipher: CredentialCipher,
         fx_rates: FxRateProvider | None = None,
+        registry: ConnectorRegistry | None = None,
     ) -> None:
         self.db = db
         self.cipher = cipher
         self.fx_rates = fx_rates or EcbFxRateProvider(db)
+        self.registry = registry or ConnectorRegistry()
 
     async def sync(
         self,
@@ -102,7 +100,8 @@ class ConnectionSyncService:
         run_id = run.id
 
         try:
-            connector = connector or ConnectorRegistry().create(
+            definition = self.registry.definition(connection.broker)
+            connector = connector or self.registry.create(
                 connection.broker,
                 self.cipher.decrypt(connection.encrypted_credentials),
             )
@@ -111,10 +110,7 @@ class ConnectionSyncService:
             history_warning = None
             paginated_history = bool(connector.transaction_history_streams())
             transactions: list[ConnectorTransaction] = []
-            activity_backfill_stream = {
-                Broker.BINANCE: BINANCE_ACTIVITY_CURSOR,
-                Broker.ETORO: ETORO_ACTIVITY_CURSOR,
-            }.get(connection.broker)
+            activity_backfill_stream = definition.initial_activity_cursor
             activity_backfill_needed = False
             try:
                 if paginated_history:
@@ -203,9 +199,7 @@ class ConnectionSyncService:
                         reported_pnl=item.reported_pnl,
                         reported_pnl_eur=pnl_eur,
                         valued_at=valuation_at,
-                        valuation_source=(
-                            "market" if connection.broker is Broker.BINANCE else "provider"
-                        ),
+                        valuation_source=definition.valuation_source,
                         is_estimated=False,
                     )
                     for item, value_eur, pnl_eur, canonical in zip(
@@ -349,13 +343,13 @@ class ConnectionSyncService:
                     break
                 if next_page_path in seen_paths:
                     raise ConnectorError(
-                        "Trading 212 repeated a history continuation. Backfill will resume later."
+                        "The provider repeated a history continuation. Backfill will resume later."
                     )
                 seen_paths.add(next_page_path)
                 page = await connector.fetch_transaction_page(stream, next_page_path)
                 if page.next_page_path == next_page_path:
                     raise ConnectorError(
-                        "Trading 212 repeated a history continuation. Backfill will resume later."
+                        "The provider repeated a history continuation. Backfill will resume later."
                     )
                 run.transactions_read += len(page.transactions)
                 page_written = await self._store_transactions(connection.id, page.transactions)

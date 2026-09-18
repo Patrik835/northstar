@@ -10,26 +10,27 @@ from app.models.enums import Broker, ConnectionStatus, SyncTrigger
 from app.repositories.connections import ConnectionRepository
 from app.services.connection_sync import ConnectionSyncService
 
-CREDENTIAL_FIELDS: dict[Broker, tuple[str, ...]] = {
-    Broker.TRADING212: ("api_key", "api_secret"),
-    Broker.ETORO: ("api_key", "user_key"),
-    Broker.BINANCE: ("api_key", "secret_key"),
-}
-
 
 class InvalidConnectionCredentials(ValueError):
     pass
 
 
 class ConnectionService:
-    def __init__(self, db: AsyncSession, cipher: CredentialCipher) -> None:
+    def __init__(
+        self,
+        db: AsyncSession,
+        cipher: CredentialCipher,
+        registry: ConnectorRegistry | None = None,
+    ) -> None:
         self.db = db
         self.cipher = cipher
         self.repo = ConnectionRepository(db)
+        self.registry = registry or ConnectorRegistry()
 
     async def create(
         self, user_id: uuid.UUID, broker: Broker, credentials: dict[str, str]
     ) -> BrokerConnection:
+        credentials = _normalized_credentials(credentials)
         required, connector = await self._validate(broker, credentials)
 
         key_hint = mask_secret(credentials[required[0]])
@@ -57,6 +58,7 @@ class ConnectionService:
         if not connection:
             return None
 
+        credentials = _normalized_credentials(credentials)
         required, connector = await self._validate(connection.broker, credentials)
         connection.encrypted_credentials = self.cipher.encrypt(credentials)
         connection.credential_hint = mask_secret(credentials[required[0]])
@@ -79,18 +81,23 @@ class ConnectionService:
     async def _validate(
         self, broker: Broker, credentials: dict[str, str]
     ) -> tuple[tuple[str, ...], BrokerConnector]:
-        required = CREDENTIAL_FIELDS.get(broker)
-        if (
-            not required
-            or set(credentials) != set(required)
-            or any(not credentials[k] for k in required)
-        ):
+        try:
+            required = self.registry.definition(broker).credential_fields
+        except ValueError as exc:
             raise InvalidConnectionCredentials(
-                f"Expected exactly these credential fields: {', '.join(required or ())}"
+                f"{broker.value} is not available as a live connection"
+            ) from exc
+        if set(credentials) != set(required) or any(not credentials[k] for k in required):
+            raise InvalidConnectionCredentials(
+                f"Expected exactly these credential fields: {', '.join(required)}"
             )
-        connector = ConnectorRegistry().create(broker, credentials)
+        connector = self.registry.create(broker, credentials)
         try:
             await connector.validate_credentials()
         except ConnectorError as exc:
             raise InvalidConnectionCredentials(str(exc)) from exc
         return required, connector
+
+
+def _normalized_credentials(credentials: dict[str, str]) -> dict[str, str]:
+    return {key: value.strip() for key, value in credentials.items()}

@@ -23,7 +23,20 @@ class Settings(BaseSettings):
     session_ttl_hours: int = 24 * 7
     public_signup_enabled: bool = True
     email_verification_ttl_hours: int = 24
+    password_reset_ttl_minutes: int = 60
     public_web_url: str = "http://localhost:8080"
+
+    auth_rate_limit_window_minutes: int = 15
+    auth_login_ip_limit: int = 30
+    auth_login_account_limit: int = 10
+    auth_registration_ip_limit: int = 5
+    auth_email_ip_limit: int = 10
+    auth_email_account_limit: int = 3
+
+    log_format: Literal["text", "json"] = "text"
+    monitoring_token: str | None = None
+    backup_status_file: str = "/backups/latest-success"
+    backup_max_age_hours: int = 30
 
     smtp_host: str = "mailpit"
     smtp_port: int = 1025
@@ -36,15 +49,22 @@ class Settings(BaseSettings):
 
     ai_enabled: bool = False
     openai_api_key: str | None = None
-    openai_model: str = "gpt-5-mini"
+    openai_model: str = "gpt-5.6-terra"
+    ai_review_cache_hours: int = 12
+    ai_daily_review_limit: int = 3
+    ai_daily_message_limit: int = 30
+    ai_max_input_characters: int = 2000
     news_enabled: bool = False
     finnhub_api_key: str | None = None
+    news_brief_candidate_limit: int = 300
     alpha_vantage_key: str | None = None
     benchmarks_enabled: bool = False
 
     scheduler_enabled: bool = True
     portfolio_sync_minutes: int = 120
     news_sync_hour_utc: int = 4
+    notification_digest_hour_utc: int = 7
+    allocation_drift_alert_points: int = 5
 
     initial_admin_username: str = "patrik"
     initial_admin_password: str | None = None

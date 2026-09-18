@@ -102,5 +102,6 @@ class BrokerConnector(ABC):
 
         raise NotImplementedError("This connector does not expose paginated transaction history")
 
+    @abstractmethod
     async def fetch_snapshot(self, snapshot_date: date) -> ConnectorSnapshot:
-        raise NotImplementedError("This connector does not provide dated snapshots")
+        """Return the provider's current account-level valuation for the requested day."""

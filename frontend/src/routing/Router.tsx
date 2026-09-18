@@ -66,6 +66,7 @@ export function Link({ to, active, onClick, className, ...props }: LinkProps) {
     <a
       href={to}
       className={[className, active ? "active" : ""].filter(Boolean).join(" ")}
+      aria-current={active ? "page" : undefined}
       onClick={follow}
       {...props}
     />
