@@ -80,3 +80,16 @@ class AccountDeletionRequest(AccountPasswordRequest):
 
 class MessageResponse(BaseModel):
     message: str
+
+
+class RegistrationResponse(BaseModel):
+    message: str
+    # True when the account can sign in right away (first account, or no email setup).
+    active: bool
+
+
+class SetupStatus(BaseModel):
+    # No accounts exist yet: the next registration creates the administrator.
+    needs_setup: bool
+    signup_enabled: bool
+    email_enabled: bool

@@ -1,7 +1,12 @@
-.PHONY: dev up down logs migrate bootstrap test lint backup restore-test e2e
+.PHONY: setup up down logs migrate bootstrap test lint backup restore-test e2e
 
-up:
+# Creates .env and generates secrets on first run; never changes existing values.
+setup:
+	@sh ops/init-env.sh
+
+up: setup
 	docker compose up --build -d
+	@echo "Northstar is starting at http://localhost:8080 — the first account you create becomes the admin."
 
 down:
 	docker compose down
@@ -12,6 +17,7 @@ logs:
 migrate:
 	docker compose run --rm migrate
 
+# Optional: pre-create an admin from INITIAL_ADMIN_* instead of registering in the browser.
 bootstrap:
 	docker compose run --rm api python -m app.bootstrap
 

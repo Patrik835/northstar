@@ -46,7 +46,7 @@ test.describe.serial("public release account lifecycle", () => {
   }, testInfo) => {
     const suffix = `${Date.now()}_${testInfo.project.name.replaceAll(/\W/g, "_")}`;
     const username = `release_${suffix}`;
-    const email = `release_${suffix}@example.test`;
+    const email = `release_${suffix}@example.com`;
     await page.goto("/register");
     await page.getByLabel("Username").fill(username);
     await page.getByLabel("Email", { exact: true }).fill(email);
@@ -66,7 +66,7 @@ test.describe.serial("public release account lifecycle", () => {
 
     await page.getByRole("link", { name: "Settings" }).click();
     await expectNoSeriousAccessibilityViolations(page);
-    const dataPanel = page.locator(".data-controls");
+    const dataPanel = page.locator(".data-controls > form");
     await dataPanel.getByLabel("Current password").fill(originalPassword);
     const downloadPromise = page.waitForEvent("download");
     await dataPanel.getByRole("button", { name: "Download my data" }).click();

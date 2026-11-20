@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { api } from "../../api/client";
+import { useFeatures } from "../../api/features";
 import type { ContentSummary, NotificationPreference } from "../../api/types";
 import { EmptyState } from "../../components/EmptyState";
 import { Link } from "../../routing/Router";
@@ -27,6 +28,8 @@ export function UpdatesPage() {
   const [saved, setSaved] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const [newsTab, setNewsTab] = useState<"top" | "brief">("top");
+  const features = useFeatures();
+  const newsOff = features?.news === false;
 
   async function refresh() {
     const [nextContent, nextPreferences] = await Promise.all([
@@ -121,10 +124,10 @@ export function UpdatesPage() {
 
   return <>
     <header className="page-header compact-page-header">
-      <div><p className="eyebrow">Updates</p><h1>What needs your attention</h1></div>
+      <div><p className="eyebrow">News &amp; alerts</p><h1>What needs your attention</h1></div>
       <div className="page-header-actions">
         {content && <span className="as-of">{content.unread_alerts + content.unread_news} unread</span>}
-        <button className="secondary compact-button" disabled={refreshing} onClick={() => void refreshMarketContent()}>{refreshing ? "Refreshing…" : "Refresh"}</button>
+        {!newsOff && <button className="secondary compact-button" disabled={refreshing} onClick={() => void refreshMarketContent()}>{refreshing ? "Refreshing…" : "Refresh"}</button>}
       </div>
     </header>
     {error && <p className="error">{error}</p>}
@@ -147,7 +150,12 @@ export function UpdatesPage() {
       </section>
     )}
 
-    <section className="updates-grid">
+    {newsOff && !content?.alerts.some((item) => !item.read_at) && (
+      <EmptyState title="You're all caught up">Portfolio alerts, such as a drift from your allocation targets, will appear here.</EmptyState>
+    )}
+    {newsOff && <p className="muted feature-off-note">Company news and the earnings calendar are not set up on this server (an administrator can add a free Finnhub key).</p>}
+
+    {!newsOff && <section className="updates-grid">
       <article className="panel updates-panel">
         <div className="panel-heading news-panel-heading">
           <div><p className="eyebrow">Your portfolio</p><h2>Market updates</h2></div>
@@ -202,7 +210,7 @@ export function UpdatesPage() {
           ))}
         </div> : <EmptyState title="No upcoming events">Held-company earnings and supported dividend dates will appear here.</EmptyState>}
       </article>
-    </section>
+    </section>}
 
     <details className="panel digest-settings">
       <summary>Email digest</summary>

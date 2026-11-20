@@ -20,6 +20,7 @@ from app.models.broker import BrokerConnection
 from app.models.enums import Broker, ConnectionStatus, SyncRunStatus, SyncTrigger
 from app.models.portfolio import PortfolioSnapshot, Position, Transaction
 from app.models.sync import SyncCursor, SyncRun
+from app.services.database_locks import connection_sync_lock
 from app.services.instrument_resolver import InstrumentResolver
 
 logger = logging.getLogger(__name__)
@@ -65,6 +66,7 @@ def _broker_label(broker: Broker) -> str:
         return broker.value.replace("_", " ").title()
 
 
+
 class ConnectionSyncService:
     def __init__(
         self,
@@ -79,6 +81,22 @@ class ConnectionSyncService:
         self.registry = registry or ConnectorRegistry()
 
     async def sync(
+        self,
+        connection: BrokerConnection,
+        connector: BrokerConnector | None = None,
+        *,
+        trigger: SyncTrigger = SyncTrigger.MANUAL,
+    ) -> BrokerConnection:
+        # Release the caller's read transaction before acquiring independent ownership.
+        await self.db.commit()
+        async with connection_sync_lock(self.db, connection.id) as acquired:
+            if not acquired:
+                await self.db.refresh(connection)
+                return connection
+            await self.db.refresh(connection)
+            return await self._sync_owned(connection, connector, trigger=trigger)
+
+    async def _sync_owned(
         self,
         connection: BrokerConnection,
         connector: BrokerConnector | None = None,

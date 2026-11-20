@@ -117,9 +117,7 @@ class PortfolioRepository:
                 connection_id=connection.id,
                 last_synced_at=connection.last_synced_at,
                 instrument=instrument,
-                reconciliation_difference_percent=(
-                    connection.reconciliation_difference_percent
-                ),
+                reconciliation_difference_percent=(connection.reconciliation_difference_percent),
                 reconciliation_checked_at=connection.reconciliation_checked_at,
                 reconciliation_warning=connection.reconciliation_warning,
             )
@@ -134,9 +132,7 @@ class PortfolioRepository:
             ConnectionQualityRow(
                 broker=connection.broker,
                 connection_id=connection.id,
-                reconciliation_difference_percent=(
-                    connection.reconciliation_difference_percent
-                ),
+                reconciliation_difference_percent=(connection.reconciliation_difference_percent),
                 reconciliation_checked_at=connection.reconciliation_checked_at,
                 reconciliation_warning=connection.reconciliation_warning,
             )
@@ -160,8 +156,9 @@ class PortfolioRepository:
         aliases = list(
             (
                 await self.db.execute(
-                    select(InstrumentAlias, Instrument)
-                    .join(Instrument, InstrumentAlias.instrument_id == Instrument.id)
+                    select(InstrumentAlias, Instrument).join(
+                        Instrument, InstrumentAlias.instrument_id == Instrument.id
+                    )
                 )
             ).all()
         )
@@ -174,9 +171,7 @@ class PortfolioRepository:
                 transaction=transaction,
                 broker=connection.broker,
                 connection_id=connection.id,
-                instrument=alias_map.get(
-                    (connection.broker, transaction.ticker.casefold())
-                ),
+                instrument=alias_map.get((connection.broker, transaction.ticker.casefold())),
             )
             for transaction, connection in rows
         ]
@@ -224,8 +219,7 @@ class PortfolioRepository:
             query = query.where(HistoricalPrice.price_date >= start_date - timedelta(days=14))
         rows = await self.db.execute(query)
         return [
-            HistoricalPriceRow(price=price, instrument=instrument)
-            for price, instrument in rows
+            HistoricalPriceRow(price=price, instrument=instrument) for price, instrument in rows
         ]
 
     async def historical_usd_eur_rates(

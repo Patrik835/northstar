@@ -20,6 +20,7 @@ from app.models.content import (
 )
 from app.models.portfolio import HoldingMetadata, PortfolioSnapshot, Position, Transaction
 from app.models.user import User, UserProfile
+from app.services.database_locks import lock_admin_deletion
 
 
 class AccountPasswordError(Exception):
@@ -128,6 +129,7 @@ class AccountDataService:
     async def delete(self, user: User, current_password: str) -> None:
         self._verify(user, current_password)
         if user.is_admin:
+            await lock_admin_deletion(self.db)
             admin_count = await self.db.scalar(
                 select(func.count()).select_from(User).where(
                     User.is_admin.is_(True), User.is_active.is_(True)

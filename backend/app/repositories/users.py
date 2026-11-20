@@ -23,6 +23,9 @@ class UserRepository:
             select(User).options(selectinload(User.profile)).where(User.id == user_id)
         )
 
+    async def has_any(self) -> bool:
+        return await self.db.scalar(select(User.id).limit(1)) is not None
+
     async def create(self, user: User) -> User:
         self.db.add(user)
         await self.db.flush()

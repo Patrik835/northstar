@@ -187,7 +187,8 @@ export type ManualPosition = {
   asset_type: "stock" | "etf" | "crypto";
   quantity: string;
   average_price: string | null;
-  current_price: string;
+  current_price: string | null;
+  note: string | null;
   currency: string;
   isin: string | null;
   current_value: string;
@@ -211,6 +212,7 @@ export type InvestmentPerformanceBreakdown = {
 };
 
 export type HoldingSource = {
+  note: string | null;
   broker: Broker;
   connection_id: string;
   provider_instrument_id: string;
@@ -353,14 +355,7 @@ export type ActivityTotal = {
   }>;
 };
 
-export type HoldingMetadata = {
-  holding_key: string;
-  category: string | null;
-  tags: string[];
-  notes: string | null;
-  target_allocation_percentage: string | null;
-  updated_at: string | null;
-};
+
 
 export type PortfolioHistoryPoint = {
   date: string;

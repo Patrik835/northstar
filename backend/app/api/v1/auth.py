@@ -17,7 +17,9 @@ from app.schemas.auth import (
     PasswordResetConfirmRequest,
     PasswordResetRequest,
     RegistrationRequest,
+    RegistrationResponse,
     ResendVerificationRequest,
+    SetupStatus,
 )
 from app.schemas.user import UserRead
 from app.services.account_data import (
@@ -110,20 +112,32 @@ async def login(
         token,
         max_age=settings.session_ttl_hours * 3600,
         httponly=True,
-        secure=settings.cookie_secure,
+        secure=settings.secure_cookies,
         samesite="lax",
         path="/",
     )
     return UserRead.model_validate(user)
 
 
-@router.post("/register", response_model=MessageResponse, status_code=status.HTTP_202_ACCEPTED)
+@router.get("/setup", response_model=SetupStatus)
+async def setup_status(db: DbSession, settings: AppSettings) -> SetupStatus:
+    needs_setup = await RegistrationService(db, settings, SMTPEmailSender(settings)).needs_setup()
+    return SetupStatus(
+        needs_setup=needs_setup,
+        signup_enabled=needs_setup or settings.public_signup_enabled,
+        email_enabled=settings.email_enabled,
+    )
+
+
+@router.post(
+    "/register", response_model=RegistrationResponse, status_code=status.HTTP_202_ACCEPTED
+)
 async def register(
     payload: RegistrationRequest,
     request: Request,
     db: DbSession,
     settings: AppSettings,
-) -> MessageResponse:
+) -> RegistrationResponse:
     await _throttle(
         db,
         settings,
@@ -134,7 +148,7 @@ async def register(
     )
     service = RegistrationService(db, settings, SMTPEmailSender(settings))
     try:
-        await service.register(payload.username, str(payload.email), payload.password)
+        active = await service.register(payload.username, str(payload.email), payload.password)
     except SignupDisabledError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Registration is unavailable") from exc
     except RegistrationConflictError as exc:
@@ -146,7 +160,9 @@ async def register(
             status.HTTP_503_SERVICE_UNAVAILABLE,
             "Account created, but the verification email could not be sent. Try resending it.",
         ) from exc
-    return MessageResponse(message="Check your email to verify your account")
+    if active:
+        return RegistrationResponse(message="Account created. You can sign in now.", active=True)
+    return RegistrationResponse(message="Check your email to verify your account", active=False)
 
 
 @router.post("/verify-email", response_model=MessageResponse)

@@ -3,7 +3,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.models.enums import AssetType, Broker
 
@@ -33,9 +33,7 @@ class InvestmentPerformanceBreakdown(BaseModel):
     cost_basis_eur: Decimal | None = None
     open_pnl_eur: Decimal | None = None
     open_pnl_percentage: Decimal | None = None
-    open_pnl_source: Literal[
-        "provider", "calculated", "mixed", "unavailable"
-    ] = "unavailable"
+    open_pnl_source: Literal["provider", "calculated", "mixed", "unavailable"] = "unavailable"
     realized_pnl_eur: Decimal | None = None
     income_eur: Decimal = Decimal(0)
     fees_eur: Decimal = Decimal(0)
@@ -50,6 +48,7 @@ class HoldingSource(BaseModel):
     provider_instrument_id: str
     provider_symbol: str
     provider_name: str | None
+    note: str | None = None
     canonical_instrument_id: uuid.UUID | None
     canonical_symbol: str
     canonical_name: str
@@ -146,12 +145,17 @@ class ManualPositionWrite(BaseModel):
     name: str | None = Field(default=None, max_length=200)
     asset_type: AssetType
     quantity: Decimal = Field(gt=0, max_digits=28, decimal_places=10)
-    average_price: Decimal | None = Field(
-        default=None, ge=0, max_digits=20, decimal_places=8
-    )
-    current_price: Decimal = Field(gt=0, max_digits=20, decimal_places=8)
+    average_price: Decimal | None = Field(default=None, ge=0, max_digits=20, decimal_places=8)
+    current_price: Decimal | None = Field(default=None, gt=0, max_digits=20, decimal_places=8)
     currency: str = Field(default="EUR", min_length=3, max_length=3)
     isin: str | None = Field(default=None, max_length=12)
+    note: str | None = Field(default=None, max_length=2000)
+
+    @model_validator(mode="after")
+    def require_valuation(self) -> "ManualPositionWrite":
+        if self.current_price is None and (self.average_price is None or self.average_price <= 0):
+            raise ValueError("Enter a purchase price greater than zero")
+        return self
 
     @field_validator("asset_type")
     @classmethod
@@ -165,14 +169,15 @@ class ManualPositionWrite(BaseModel):
     def clean_ticker(cls, value: str) -> str:
         cleaned = value.strip().upper()
         if not cleaned or any(
-            character not in "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-/" for character in cleaned
+            not character.isalnum() and character not in "._-/&$" for character in cleaned
         ):
             raise ValueError(
-                "Use only letters, numbers, dots, dashes, underscores, or slashes"
+                "Use letters, numbers, dots, dashes, underscores, slashes, "
+                "dollar signs, or ampersands"
             )
         return cleaned
 
-    @field_validator("name")
+    @field_validator("name", "note")
     @classmethod
     def clean_manual_name(cls, value: str | None) -> str | None:
         cleaned = (value or "").strip()
@@ -192,12 +197,19 @@ class ManualPositionWrite(BaseModel):
         cleaned = (value or "").replace(" ", "").upper()
         if not cleaned:
             return None
-        if len(cleaned) != 12 or not cleaned[:2].isalpha() or not cleaned[-1].isdigit():
+        if (
+            len(cleaned) != 12
+            or not cleaned.isalnum()
+            or not cleaned[:2].isalpha()
+            or not cleaned[-1].isdigit()
+        ):
             raise ValueError("Enter a valid 12-character ISIN or leave it empty")
         return cleaned
 
 
 class ManualPositionRead(ManualPositionWrite):
+    # Consolidation preserves all notes, even when their combined length exceeds input limits.
+    note: str | None = None
     id: uuid.UUID
     current_value: Decimal
     current_value_eur: Decimal

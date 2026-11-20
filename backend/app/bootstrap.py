@@ -11,7 +11,10 @@ from app.models.user import User
 async def bootstrap_admin() -> None:
     settings = get_settings()
     if not settings.initial_admin_password:
-        raise SystemExit("INITIAL_ADMIN_PASSWORD is required for the first bootstrap")
+        raise SystemExit(
+            "Nothing to do: the first account registered in the web app becomes the "
+            "administrator. Set INITIAL_ADMIN_PASSWORD only to pre-create an admin."
+        )
     async with SessionFactory() as db:
         existing = await db.scalar(
             select(User).where(User.username == settings.initial_admin_username)

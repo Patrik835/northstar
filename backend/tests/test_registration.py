@@ -118,3 +118,69 @@ async def test_existing_account_can_add_email_and_receive_verification() -> None
             assert await db.scalar(select(func.count()).select_from(EmailVerificationToken)) == 1
     finally:
         engine.dispose()
+
+
+def _registration_db():
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    return engine, sessionmaker(engine, expire_on_commit=False)
+
+
+@pytest.mark.asyncio
+async def test_first_account_becomes_active_admin_without_email() -> None:
+    engine, factory = _registration_db()
+    try:
+        with factory() as sync_db:
+            db = AsyncSessionAdapter(sync_db)
+            sender = CapturingEmailSender()
+            service = RegistrationService(db, get_settings(), sender)  # type: ignore[arg-type]
+
+            assert await service.needs_setup() is True
+            assert await service.register("owner", "owner@example.com", "x" * 12) is True
+
+            owner = sync_db.scalar(select(User).where(User.username == "owner"))
+            assert owner is not None and owner.is_admin and owner.email_verified_at
+            assert sender.message is None
+            assert await service.needs_setup() is False
+
+            assert await service.register("guest", "guest@example.com", "x" * 12) is False
+            guest = sync_db.scalar(select(User).where(User.username == "guest"))
+            assert guest is not None and not guest.is_admin and guest.email_verified_at is None
+            assert sender.message is not None
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_first_account_is_allowed_even_when_public_signup_is_disabled() -> None:
+    from app.services.registration import SignupDisabledError
+
+    engine, factory = _registration_db()
+    settings = get_settings().model_copy(update={"public_signup_enabled": False})
+    try:
+        with factory() as sync_db:
+            db = AsyncSessionAdapter(sync_db)
+            service = RegistrationService(db, settings, CapturingEmailSender())  # type: ignore[arg-type]
+            assert await service.register("owner", "owner@example.com", "x" * 12) is True
+            with pytest.raises(SignupDisabledError):
+                await service.register("guest", "guest@example.com", "x" * 12)
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_without_email_server_new_accounts_are_active_immediately() -> None:
+    engine, factory = _registration_db()
+    settings = get_settings().model_copy(update={"smtp_host": ""})
+    try:
+        with factory() as sync_db:
+            db = AsyncSessionAdapter(sync_db)
+            sender = CapturingEmailSender()
+            service = RegistrationService(db, settings, sender)  # type: ignore[arg-type]
+            await service.register("owner", "owner@example.com", "x" * 12)
+            assert await service.register("guest", "guest@example.com", "x" * 12) is True
+            guest = sync_db.scalar(select(User).where(User.username == "guest"))
+            assert guest is not None and guest.email_verified_at is not None
+            assert sender.message is None
+    finally:
+        engine.dispose()

@@ -13,3 +13,7 @@ backups/
 playwright-report/
 test-results/
 .DS_Store
+
+# Personal broker exports and statements (keep private data out of git)
+/*.xlsx
+/*.csv

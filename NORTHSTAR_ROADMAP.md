@@ -175,7 +175,13 @@ All implementation tickets should target approximately 1–3 working days and in
      charges, canonical ISINs, reconstructed holdings/cost, overlap-safe re-import, and
      visibly estimated last-trade valuation.
 22. [removed] Do not provide generic transaction templates; supported imports should accept the provider's native export without user reformatting.
-23. [moved] Reserve manual entry for the Phase 4 diversified-asset model in item 63, beginning with real estate rather than manually maintained stocks or crypto.
+23. [x] Add a small tenant-scoped manual Stock/ETF/Crypto position fallback with asset
+    autocomplete, purchase price, quantity, optional note, EUR conversion, daily snapshots,
+    market refresh on save/read, open P/L, and weighted-cost merging of repeated entries.
+    Keep generic transaction entry out of scope.
+23a. [x] Expand asset autocomplete to a dated, bundled catalogue of the top 3,000 worldwide
+     listed companies and top 150 cryptocurrencies by market cap, with local search,
+     international symbols, retained ETF/portfolio suggestions, and a validated refresh command.
 24. [x] Add automatic source-total reconciliation where a live provider exposes an independent account total, warning only beyond both 3% and EUR 5. Providers without an independent total remain silent; Trading 212 Crypto overlap deduplication stays automatic.
 24a. [x] Add a Bybit EU V5 read-only API connector; retain the native CSV/XLSX importer as
     a backward-compatible migration path

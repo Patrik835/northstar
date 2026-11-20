@@ -51,7 +51,7 @@ function tone(value: number) {
 function Coverage({ status, coverage }: { status: string; coverage?: string }) {
   return (
     <span className={`analytics-coverage ${status}`}>
-      {coverage ? `${percent.format(Number(coverage))}% covered` : status}
+      {coverage ? `Based on ${percent.format(Number(coverage))}% of your portfolio` : status}
     </span>
   );
 }
@@ -271,7 +271,7 @@ export function AnalyticsPage() {
               <div className="panel-heading"><div><p className="eyebrow">Contribution</p><h2>Impact on portfolio</h2></div></div>
               {data.performance.contributors.length
                 ? <ContributionBars items={data.performance.contributors} />
-                : <EmptyState title="No P/L coverage">Synchronize provider-reported P/L to calculate contribution.</EmptyState>}
+                : <EmptyState title="No profit/loss data yet">Sync a source that reports profit and loss to see what drives your returns.</EmptyState>}
             </article>
           </section>
 

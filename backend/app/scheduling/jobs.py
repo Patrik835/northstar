@@ -63,7 +63,7 @@ async def sync_monthly_etoro_snapshots() -> None:
 async def sync_portfolio_news() -> None:
     """Fetch and deduplicate Finnhub news for tickers held by active users."""
     settings = get_settings()
-    if not settings.news_enabled or not settings.finnhub_api_key:
+    if not settings.news_available:
         return
     async with httpx.AsyncClient(base_url="https://finnhub.io/api/v1", timeout=15) as client:
         async with SessionFactory() as db:
@@ -71,14 +71,14 @@ async def sync_portfolio_news() -> None:
                 db, FinnhubNewsProvider(settings.finnhub_api_key, client=client)
             ).sync()
             generated = failed = 0
-            if settings.ai_enabled and settings.openai_api_key:
+            if settings.ai_available:
                 generated, failed = await PortfolioNewsBriefingService(
                     db,
                     settings,
                     OpenAINewsBriefingAgent(settings.openai_api_key, settings.openai_model),
                 ).generate_all()
     logger.info("Finnhub content stored: %d news items and %d calendar events", news, events)
-    if settings.ai_enabled and settings.openai_api_key:
+    if settings.ai_available:
         logger.info("Portfolio news briefs processed: %d successful, %d failed", generated, failed)
 
 

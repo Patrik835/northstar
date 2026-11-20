@@ -131,7 +131,15 @@ def holdings_csv(
             if open_pnl is not None
             else "unavailable"
         )
-        open_cost = value - open_pnl if open_pnl is not None else None
+        covered_value = sum(
+            (
+                source.current_value_eur
+                for source in sources
+                if source.performance.open_pnl_eur is not None
+            ),
+            Decimal(0),
+        )
+        open_cost = covered_value - open_pnl if open_pnl is not None else None
         open_pnl_percentage = (
             open_pnl * 100 / open_cost
             if open_pnl is not None and open_cost is not None and open_cost > 0

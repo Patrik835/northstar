@@ -1,8 +1,10 @@
 from fastapi import APIRouter
 
 from app.api.dependencies import AppSettings, CurrentUser, DbSession
+from app.core.encryption import CredentialCipher
 from app.repositories.portfolio import PortfolioRepository
 from app.schemas.portfolio import DashboardSummary, FeatureStatus
+from app.services.manual_positions import ManualPositionService
 from app.services.portfolio import PortfolioService
 
 router = APIRouter()
@@ -10,13 +12,14 @@ router = APIRouter()
 
 @router.get("/summary", response_model=DashboardSummary)
 async def summary(user: CurrentUser, db: DbSession) -> DashboardSummary:
+    await ManualPositionService(db, CredentialCipher()).refresh(user.id)
     return await PortfolioService(PortfolioRepository(db)).dashboard(user.id)
 
 
 @router.get("/features", response_model=FeatureStatus)
 async def features(user: CurrentUser, settings: AppSettings) -> FeatureStatus:
     return FeatureStatus(
-        ai=bool(settings.ai_enabled and settings.openai_api_key),
-        news=bool(settings.news_enabled and settings.finnhub_api_key),
-        benchmarks=settings.benchmarks_enabled,
+        ai=settings.ai_available,
+        news=settings.news_available,
+        benchmarks=settings.benchmarks_available,
     )

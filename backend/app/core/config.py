@@ -1,14 +1,18 @@
-from base64 import urlsafe_b64decode
+from base64 import b64decode
 from functools import lru_cache
 from typing import Literal
+from urllib.parse import urlsplit
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=("../.env", ".env"), env_file_encoding="utf-8", extra="ignore"
+        env_file=("../.env", ".env"),
+        env_file_encoding="utf-8",
+        extra="ignore",
+        hide_input_in_errors=True,
     )
 
     app_name: str = "Northstar Investment OS API"
@@ -17,9 +21,11 @@ class Settings(BaseSettings):
     app_secret_key: str = Field(min_length=32)
     credential_encryption_key: str
     database_url: str = "postgresql+asyncpg://investing:investing@db:5432/investing"
-    frontend_origin: str = "http://localhost:5173"
+    # Only needed when the web app is served from a different origin than PUBLIC_WEB_URL.
+    frontend_origin: str | None = None
     cookie_name: str = "investment_session"
-    cookie_secure: bool = False
+    # Defaults to secure cookies whenever PUBLIC_WEB_URL uses HTTPS.
+    cookie_secure: bool | None = None
     session_ttl_hours: int = 24 * 7
     public_signup_enabled: bool = True
     email_verification_ttl_hours: int = 24
@@ -47,18 +53,19 @@ class Settings(BaseSettings):
     email_from_address: str = "no-reply@northstar.local"
     email_from_name: str = "Northstar"
 
-    ai_enabled: bool = False
+    # Optional features switch on automatically once their API key is set.
+    ai_enabled: bool = True
     openai_api_key: str | None = None
     openai_model: str = "gpt-5.6-terra"
     ai_review_cache_hours: int = 12
     ai_daily_review_limit: int = 3
     ai_daily_message_limit: int = 30
     ai_max_input_characters: int = 2000
-    news_enabled: bool = False
+    news_enabled: bool = True
     finnhub_api_key: str | None = None
     news_brief_candidate_limit: int = 300
     alpha_vantage_key: str | None = None
-    benchmarks_enabled: bool = False
+    benchmarks_enabled: bool = True
 
     scheduler_enabled: bool = True
     portfolio_sync_minutes: int = 120
@@ -72,15 +79,53 @@ class Settings(BaseSettings):
     @field_validator("credential_encryption_key")
     @classmethod
     def validate_encryption_key(cls, value: str) -> str:
-        if value.startswith("replace-"):
-            return value
         try:
-            decoded = urlsafe_b64decode(value.encode())
+            decoded = b64decode(value.encode(), altchars=b"-_", validate=True)
         except ValueError as exc:
             raise ValueError("Credential encryption key must be URL-safe base64") from exc
         if len(decoded) != 32:
             raise ValueError("Credential encryption key must decode to exactly 32 bytes")
         return value
+
+    @property
+    def secure_cookies(self) -> bool:
+        if self.cookie_secure is not None:
+            return self.cookie_secure
+        return self.public_web_url.lower().startswith("https://")
+
+    @property
+    def cors_origin(self) -> str:
+        return (self.frontend_origin or self.public_web_url).rstrip("/")
+
+    @property
+    def email_enabled(self) -> bool:
+        """An empty SMTP_HOST means this deployment does not send email."""
+        return bool(self.smtp_host.strip())
+
+    @property
+    def ai_available(self) -> bool:
+        return bool(self.ai_enabled and self.openai_api_key)
+
+    @property
+    def news_available(self) -> bool:
+        return bool(self.news_enabled and self.finnhub_api_key)
+
+    @property
+    def benchmarks_available(self) -> bool:
+        return bool(self.benchmarks_enabled and self.alpha_vantage_key)
+
+    @model_validator(mode="after")
+    def validate_production(self) -> "Settings":
+        if self.app_env == "production":
+            if not self.secure_cookies:
+                raise ValueError("Production requires secure cookies")
+            for url in (self.public_web_url, self.cors_origin):
+                parsed = urlsplit(url)
+                if parsed.scheme != "https" or not parsed.hostname:
+                    raise ValueError("Production public URLs must use HTTPS")
+            if self.app_secret_key.startswith(("replace-", "test-", "change-")):
+                raise ValueError("Production requires a non-placeholder application secret")
+        return self
 
 
 @lru_cache

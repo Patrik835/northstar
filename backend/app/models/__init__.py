@@ -16,7 +16,12 @@ from app.models.content import (
 from app.models.instrument import Instrument, InstrumentAlias
 from app.models.market_data import FxRate, HistoricalPrice
 from app.models.operations import OperationalJobRun
-from app.models.portfolio import HoldingMetadata, PortfolioSnapshot, Position, Transaction
+from app.models.portfolio import (
+    HoldingMetadata,
+    PortfolioSnapshot,
+    Position,
+    Transaction,
+)
 from app.models.sync import SyncCursor, SyncRun
 from app.models.user import (
     AuthRateLimitEvent,

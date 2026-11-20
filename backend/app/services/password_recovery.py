@@ -30,7 +30,7 @@ class PasswordRecoveryService:
 
     async def request(self, email: str) -> None:
         user = await self.users.by_email(email.strip().lower())
-        if not user or not user.email or not user.is_active:
+        if not user or not user.email or not user.is_active or not self.settings.email_enabled:
             return
         now = datetime.now(timezone.utc)
         await self.db.execute(
@@ -71,6 +71,19 @@ class PasswordRecoveryService:
             or _as_utc(token.expires_at) <= now
             or not token.user.is_active
         ):
+            raise InvalidPasswordResetTokenError
+        claimed = await self.db.execute(
+            update(PasswordResetToken)
+            .where(
+                PasswordResetToken.id == token.id,
+                PasswordResetToken.used_at.is_(None),
+                PasswordResetToken.expires_at > now,
+            )
+            .values(used_at=now)
+            .execution_options(synchronize_session=False)
+        )
+        if claimed.rowcount != 1:
+            await self.db.rollback()
             raise InvalidPasswordResetTokenError
         token.user.password_hash = hash_password(new_password)
         token.user.failed_login_attempts = 0

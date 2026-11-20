@@ -26,6 +26,27 @@ allocation targets without crowding Overview. Sector and geography use verified 
 first, followed by conservative local mappings for known instruments and identifiers.
 Holdings, transactions, imported income, and selected-range performance can be downloaded
 as authenticated CSV files directly from their relevant pages.
+Holdings that cannot be connected or exported can be added by searching for an asset,
+selecting a suggestion, and entering purchase price and quantity, with an optional note.
+Suggestions include the top 3,000 worldwide listed companies and top 150 cryptocurrencies
+by market capitalization, the existing eight ETF suggestions, and the user's portfolio assets.
+The bundled catalogue uses [CompaniesMarketCap's ranking CSV](https://companiesmarketcap.com/?download=csv)
+and [CoinGecko's market-cap ranking](https://docs.coingecko.com/reference/coins-markets),
+including stablecoins. Search runs locally after loading the bundled snapshot once.
+The snapshot's source URLs and generation time are stored in `frontend/public/asset-catalogue.json`.
+Refresh the snapshot from the repository root, then rebuild the frontend:
+
+```bash
+PYTHONPATH=backend backend/.venv/bin/python -m app.refresh_asset_catalogue
+docker compose up --build --no-deps -d web
+```
+
+Refresh validates both complete rankings before atomically replacing the previous catalogue.
+An unavailable, incomplete, malformed, or ambiguous-symbol feed leaves the previous file intact.
+Currency is selected alongside purchase price; EUR is the default. New entries are visibly
+valued using market quotes on save and portfolio reads, with open P/L from purchase cost.
+Failed quotes preserve the previous valuation and show an error. Repeated entries for the
+same asset merge quantities, weighted purchase costs, and notes.
 All live connectors have automated contract coverage; Binance and eToro also have
 successful real read-only account smoke tests. Interactive Brokers still needs an
 equivalent real-account smoke test.
@@ -65,38 +86,40 @@ generic synchronization services or React pages.
 
 Requirements: Docker with Compose.
 
-1. Copy `.env.example` to `.env`.
-2. Generate secrets (see below), replace the placeholder values, and choose an initial
-   admin password.
-3. Run `make up`.
-4. Run `make bootstrap` once to create the initial admin.
-5. Open `http://localhost:8080`.
-
-Public signup is enabled by default. Create an account from the registration page, then
-open `http://localhost:8025` to retrieve the development verification email from
-Mailpit. The bootstrap admin remains useful for administration and can also create
-accounts directly. Set `PUBLIC_SIGNUP_ENABLED=false` to run an invite/admin-created-only
-deployment.
-
-Production must replace the `SMTP_*` values with a real SMTP provider and set
-`PUBLIC_WEB_URL` to the public HTTPS address so verification links point to the correct
-host.
-
-Generate the two required keys:
-
 ```bash
-openssl rand -hex 32
-python -c "import base64, os; print(base64.urlsafe_b64encode(os.urandom(32)).decode())"
+make up
 ```
 
-The first value is `APP_SECRET_KEY`; the second is
-`CREDENTIAL_ENCRYPTION_KEY`. On the Raspberry Pi, keep `.env` readable only by the
-deployment account, use a strong `POSTGRES_PASSWORD`, set `COOKIE_SECURE=true`, and
-route the Cloudflare Tunnel to port 8080.
+Then open `http://localhost:8080` and create your account. That's it:
 
-## Runtime configuration
+- `make up` creates `.env` on the first run and generates the secrets
+  (`APP_SECRET_KEY`, `CREDENTIAL_ENCRYPTION_KEY`, `POSTGRES_PASSWORD`). It never changes
+  values that already exist.
+- The **first account** created on a fresh install becomes the administrator and is signed
+  in immediately; no bootstrap command or email verification is needed.
+- Later sign-ups verify their email. In local development, mail is caught by Mailpit at
+  `http://localhost:8025`. Set `SMTP_HOST=` (empty) to run without email: new accounts are
+  then active immediately and password-reset emails are disabled.
+- Optional features switch on as soon as their key is set in `.env`:
+  `OPENAI_API_KEY` (portfolio review and assistant), `FINNHUB_API_KEY` (news and earnings
+  calendar), `ALPHA_VANTAGE_KEY` (longer price history and benchmark comparison). Without a
+  key the feature is simply hidden.
 
-The main launch defaults are:
+`make bootstrap` still exists for scripted installs: it pre-creates an admin from
+`INITIAL_ADMIN_USERNAME` / `INITIAL_ADMIN_PASSWORD`.
+
+### Production (e.g. Raspberry Pi behind Cloudflare Tunnel)
+
+In `.env`, set `APP_ENV=production` and `PUBLIC_WEB_URL` to your public `https://` address.
+Secure cookies are enabled automatically for HTTPS URLs. Fill in the `SMTP_*` values for a
+real mail provider (or leave `SMTP_HOST` empty), keep `.env` readable only by the deployment
+account (`make up` creates it with mode 600), and route the tunnel to port 8080. Set
+`PUBLIC_SIGNUP_ENABLED=false` after creating your account if strangers should not be able to
+register.
+
+## Advanced configuration
+
+Everything below has a working default and is optional. Add a line to `.env` only to change it.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
@@ -109,13 +132,16 @@ The main launch defaults are:
 | `AUTH_EMAIL_IP_LIMIT` / `AUTH_EMAIL_ACCOUNT_LIMIT` | `10` / `3` | Verification/recovery emails allowed per IP/account each hour. |
 | `PORTFOLIO_SYNC_MINUTES` | `120` | Scheduled broker refresh interval. Keep it between 60 and 120 minutes for the initial deployment unless provider limits require a slower cadence. |
 | `SCHEDULER_ENABLED` | `true` | Runs portfolio and enabled content jobs in the API process. Disable it in tests or secondary API replicas. |
-| `NEWS_ENABLED` / `FINNHUB_API_KEY` | `false` / empty | Enables daily held-ticker news and earnings ingestion. Dividend dates appear when the Finnhub subscription exposes that endpoint. |
+| `FINNHUB_API_KEY` | empty | Enables daily held-ticker news and earnings ingestion as soon as it is set (`NEWS_ENABLED=false` forces it off). Dividend dates appear when the Finnhub subscription exposes that endpoint. |
 | `NEWS_BRIEF_CANDIDATE_LIMIT` | `300` | Maximum deduplicated articles from the last 24 hours considered for each cached portfolio news brief. |
-| `AI_ENABLED` / `OPENAI_API_KEY` | `false` / empty | Enables cached portfolio reviews and the portfolio assistant. Portfolio calculations remain local and deterministic. |
+| `OPENAI_API_KEY` | empty | Enables cached portfolio reviews and the portfolio assistant as soon as it is set (`AI_ENABLED=false` forces it off). Portfolio calculations remain local and deterministic. |
 | `OPENAI_MODEL` | `gpt-5.6-terra` | Responses API model used for concise reviews and chat. Existing deployments can choose another supported text model. |
 | `AI_DAILY_REVIEW_LIMIT` / `AI_DAILY_MESSAGE_LIMIT` | `3` / `30` | Per-user safeguards against accidental or abusive AI usage. |
 | `ALPHA_VANTAGE_KEY` | empty | Enables cached weekly stock/ETF prices for reconstructed portfolio history. The backfill is paced and resumes daily within the free allowance. |
-| `BENCHMARKS_ENABLED` | `true` | Reports benchmark capability through the feature-status endpoint. Comparison still requires a cached ETF and Alpha Vantage data. |
+| `BENCHMARKS_ENABLED` | `true` | Benchmark comparison is available once `ALPHA_VANTAGE_KEY` is set and an ETF has cached prices. |
+| `COOKIE_SECURE` | follows `PUBLIC_WEB_URL` | Secure cookies are on for `https://` URLs; set explicitly only to override. |
+| `FRONTEND_ORIGIN` | `PUBLIC_WEB_URL` | Only needed if the web app is served from a different origin than the API. |
+| `SMTP_HOST` | `mailpit` | Empty disables email: accounts are active immediately and password-reset mail is off. |
 | `LOG_FORMAT` | `text` | Use `json` in production for structured request and job logs. |
 | `MONITORING_TOKEN` | empty | Enables the Prometheus-format `/api/v1/metrics` endpoint when set; send it as a Bearer token. |
 | `BACKUP_DIRECTORY` | `./backups` | Host directory receiving verified PostgreSQL custom-format archives. Keep an off-host copy. |

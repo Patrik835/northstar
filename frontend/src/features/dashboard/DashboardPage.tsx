@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../../api/client";
+import { loadFeatures } from "../../api/features";
 import type {
   AllocationItem,
   ContentSummary,
@@ -13,6 +14,7 @@ import { EmptyState } from "../../components/EmptyState";
 import { CsvDownloadButton } from "../../components/CsvDownloadButton";
 import { brokerNameFromValue } from "../../domain/brokers";
 import { Link } from "../../routing/Router";
+import { GettingStarted } from "./GettingStarted";
 
 const money = new Intl.NumberFormat("en-IE", {
   style: "currency", currency: "EUR", maximumFractionDigits: 2,
@@ -54,7 +56,7 @@ function samplingLabel(performance: PortfolioPerformance) {
     adaptive_average: "Averaged to fit",
   } as const;
   const method = performance.history_method === "reconstructed"
-    ? "Reconstructed weekly history"
+    ? "Estimated from your trade history (weekly)"
     : labels[performance.sampling];
   return `${method} · ${performance.points.length} points`;
 }
@@ -246,7 +248,7 @@ export function DashboardPage() {
       .then(setSummary).catch((reason: Error) => setError(reason.message));
     api<ContentSummary>("/content?news_limit=3&event_limit=3&alert_limit=3")
       .then(setContent).catch(() => undefined);
-    api<FeatureStatus>("/dashboard/features").then((status) => {
+    loadFeatures().then((status) => {
       setFeatures(status);
       if (status.ai) api<PortfolioReview | null>("/assistant/review").then(setReview).catch(() => undefined);
     }).catch(() => undefined);
@@ -280,6 +282,18 @@ export function DashboardPage() {
         left.label.localeCompare(right.label),
     ), [summary],
   );
+  const isEmpty = summary !== null && summary.positions_count === 0 && summary.by_source.length === 0;
+  const showUpdates = Boolean(features?.news || content?.alerts.length);
+  if (isEmpty) {
+    return (
+      <>
+        <header className="page-header">
+          <div><p className="eyebrow">Welcome</p><h1>Your financial picture</h1></div>
+        </header>
+        <GettingStarted />
+      </>
+    );
+  }
   return (
     <>
       <header className="page-header">
@@ -369,21 +383,21 @@ export function DashboardPage() {
         </article>
       </section>
 
-      <section className="dashboard-grid overview-secondary-grid">
-        <article className="panel dashboard-brief-card">
+      {(features?.ai || showUpdates) && <section className="dashboard-grid overview-secondary-grid">
+        {features?.ai && <article className="panel dashboard-brief-card">
           <div className="panel-heading"><div><p className="eyebrow">AI insight</p><h2>Portfolio review</h2></div><Link to="/assistant">Open</Link></div>
           {review ? <><p className="brief-copy">{review.content.split("\n").find(Boolean)}</p><small>Generated {new Date(review.generated_at).toLocaleDateString()}</small></>
-            : <p className="muted">{features?.ai ? "Generate a review from your calculated analytics." : "Available when AI is enabled."}</p>}
+            : <p className="muted">Generate a review from your calculated analytics.</p>}
           <div className="disclaimer">Informational and educational only—not financial advice.</div>
-        </article>
-        <article className="panel dashboard-brief-card">
-          <div className="panel-heading"><div><p className="eyebrow">Updates</p><h2>News and calendar</h2></div><Link to="/updates">View all</Link></div>
+        </article>}
+        {showUpdates && <article className="panel dashboard-brief-card">
+          <div className="panel-heading"><div><p className="eyebrow">Updates</p><h2>{features?.news ? "News and calendar" : "Alerts"}</h2></div><Link to="/updates">View all</Link></div>
           {content?.alerts.some((item) => !item.read_at) && <div className="dashboard-alert-line"><i />{content.unread_alerts} item{content.unread_alerts === 1 ? "" : "s"} need attention</div>}
           {content?.news.length ? <div className="dashboard-news-list">{content.news.slice(0, 2).map((item) => <a href={item.url} target="_blank" rel="noreferrer" key={item.id}><span>{item.ticker}</span><strong>{item.headline}</strong></a>)}</div>
-            : <p className="muted">Relevant held-company news will appear here.</p>}
+            : features?.news ? <p className="muted">Relevant held-company news will appear here.</p> : null}
           {content?.events[0] && <small>Next: {content.events[0].title} · {new Date(`${content.events[0].event_date}T12:00:00`).toLocaleDateString()}</small>}
-        </article>
-      </section>
+        </article>}
+      </section>}
     </>
   );
 }

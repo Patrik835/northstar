@@ -5,11 +5,11 @@ from typing import Literal
 from app.integrations.connectors.registry import ConnectorRegistry
 from app.models.enums import Broker
 
-LIVE_BROKERS = frozenset(ConnectorRegistry().brokers())
 LIVE_STALE_AFTER = {
     definition.broker: timedelta(hours=definition.stale_after_hours)
     for definition in ConnectorRegistry().definitions()
 }
+LIVE_STALE_AFTER[Broker.MANUAL] = timedelta(hours=24)
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,9 +25,11 @@ def connection_freshness(
     *,
     now: datetime | None = None,
 ) -> FreshnessDetails:
+    if successful_at is not None and successful_at.tzinfo is None:
+        successful_at = successful_at.replace(tzinfo=timezone.utc)
     stale_after = (
         successful_at + LIVE_STALE_AFTER[broker]
-        if successful_at is not None and broker in LIVE_BROKERS
+        if successful_at is not None and broker in LIVE_STALE_AFTER
         else None
     )
     if successful_at is None:

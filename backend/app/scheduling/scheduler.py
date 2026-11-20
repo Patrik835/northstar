@@ -62,7 +62,7 @@ def build_scheduler(settings: Settings) -> AsyncIOScheduler:
             max_instances=1,
             coalesce=True,
         )
-    if settings.news_enabled:
+    if settings.news_available:
         scheduler.add_job(
             monitored_job("initial-portfolio-news", sync_portfolio_news),
             DateTrigger(run_date=datetime.now(timezone.utc) + timedelta(seconds=5)),

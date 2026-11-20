@@ -2,16 +2,19 @@ import { useEffect, useState, type FormEvent } from "react";
 import { ApiError } from "../../api/client";
 import { Link, useRouter } from "../../routing/Router";
 import { useAuth } from "./AuthContext";
+import { useSetupStatus } from "./useSetupStatus";
 
 export function LoginPage() {
   const { user, login } = useAuth();
   const { navigate } = useRouter();
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const setup = useSetupStatus();
 
   useEffect(() => {
     if (user) navigate("/", true);
-  }, [navigate, user]);
+    else if (setup?.needs_setup) navigate("/register", true);
+  }, [navigate, user, setup]);
 
   if (user) return null;
 
@@ -43,8 +46,8 @@ export function LoginPage() {
         <label>Password<input name="password" type="password" autoComplete="current-password" minLength={8} required /></label>
         {error && <p className="error" role="alert">{error}</p>}
         <button className="primary" disabled={submitting}>{submitting ? "Signing in…" : "Sign in"}</button>
-        <p className="fine-print"><Link to="/forgot-password">Forgot your password?</Link></p>
-        <p className="fine-print">New to Northstar? <Link to="/register">Create an account</Link></p>
+        {setup?.email_enabled !== false && <p className="fine-print"><Link to="/forgot-password">Forgot your password?</Link></p>}
+        {setup?.signup_enabled !== false && <p className="fine-print">New to Northstar? <Link to="/register">Create an account</Link></p>}
       </form>
     </main>
   );

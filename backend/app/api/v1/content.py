@@ -47,13 +47,13 @@ async def refresh_content(
     db: DbSession,
     settings: AppSettings,
 ) -> ContentSummary:
-    if not settings.news_enabled or not settings.finnhub_api_key:
+    if not settings.news_available:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Market updates are not enabled")
     async with httpx.AsyncClient(base_url="https://finnhub.io/api/v1", timeout=15) as client:
         await MarketContentService(
             db, FinnhubNewsProvider(settings.finnhub_api_key, client=client)
         ).sync(user.id)
-    if settings.ai_enabled and settings.openai_api_key:
+    if settings.ai_available:
         try:
             await PortfolioNewsBriefingService(
                 db,

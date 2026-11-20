@@ -116,17 +116,6 @@ class InstrumentResolver:
             )
         return None
 
-    def _refresh(
-        self,
-        instrument: Instrument,
-        alias: InstrumentAlias,
-        position: ConnectorPosition,
-    ) -> None:
-        alias.provider_symbol = position.ticker
-        alias.provider_name = position.name
-        alias.last_seen_at = datetime.now(timezone.utc)
-        self._enrich(instrument, position)
-
     @staticmethod
     def _enrich(instrument: Instrument, position: ConnectorPosition) -> None:
         isin = valid_isin(position)

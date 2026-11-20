@@ -11,6 +11,7 @@ from app.core.security import digest_session_token, hash_password
 from app.integrations.email.base import EmailSender
 from app.models.user import EmailVerificationToken, User
 from app.repositories.users import UserRepository
+from app.services.database_locks import lock_users_table
 
 
 class SignupDisabledError(Exception):
@@ -32,28 +33,43 @@ class RegistrationService:
         self.email_sender = email_sender
         self.users = UserRepository(db)
 
-    async def register(self, username: str, email: str, password: str) -> None:
-        if not self.settings.public_signup_enabled:
+    async def needs_setup(self) -> bool:
+        """True until the first account exists; that account becomes the administrator."""
+        return not await self.users.has_any()
+
+    async def register(self, username: str, email: str, password: str) -> bool:
+        """Create an account. Returns True when it can sign in immediately.
+
+        The very first account on a new installation is the administrator and is active
+        right away, so a fresh self-hosted install needs no bootstrap command or mailbox.
+        Deployments without email (empty SMTP_HOST) also activate accounts immediately.
+        """
+        await lock_users_table(self.db)
+        first_account = await self.needs_setup()
+        if not first_account and not self.settings.public_signup_enabled:
             raise SignupDisabledError
 
+        active_now = first_account or not self.settings.email_enabled
         normalized_email = email.strip().lower()
         user = User(
             username=username.strip(),
             email=normalized_email,
             password_hash=hash_password(password),
-            is_admin=False,
-            email_verified_at=None,
+            is_admin=first_account,
+            email_verified_at=datetime.now(timezone.utc) if active_now else None,
         )
         self.db.add(user)
         try:
             await self.db.flush()
-            raw_token = await self._new_token(user)
+            raw_token = None if active_now else await self._new_token(user)
             await self.db.commit()
         except IntegrityError as exc:
             await self.db.rollback()
             raise RegistrationConflictError from exc
 
-        await self._deliver(user, raw_token)
+        if raw_token is not None:
+            await self._deliver(user, raw_token)
+        return active_now
 
     async def verify(self, raw_token: str) -> None:
         now = datetime.now(timezone.utc)
@@ -76,6 +92,8 @@ class RegistrationService:
         user = await self.users.by_email(email.strip().lower())
         if not user or user.email_verified_at or not user.email:
             return
+        if not self.settings.email_enabled:
+            return
         raw_token = await self._new_token(user)
         await self.db.commit()
         await self._deliver(user, raw_token)
@@ -88,7 +106,15 @@ class RegistrationService:
         if user.email != normalized_email:
             user.email = normalized_email
             user.email_verified_at = None
+        if not self.settings.email_enabled:
+            # Without email there is nothing to verify against; trust the signed-in owner.
+            user.email_verified_at = datetime.now(timezone.utc)
         if user.email_verified_at is not None:
+            try:
+                await self.db.commit()
+            except IntegrityError as exc:
+                await self.db.rollback()
+                raise RegistrationConflictError from exc
             return
         try:
             await self.db.flush()

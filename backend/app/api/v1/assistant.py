@@ -23,7 +23,7 @@ router = APIRouter()
 
 
 def _service(db: DbSession, settings: AppSettings) -> AssistantService:
-    if not settings.ai_enabled or not settings.openai_api_key:
+    if not settings.ai_available:
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE,
             "AI features are not enabled for this deployment",

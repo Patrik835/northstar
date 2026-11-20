@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { loadFeatures } from "../../api/features";
 import { api, streamApi } from "../../api/client";
-import type { Conversation, FeatureStatus, PortfolioReview } from "../../api/types";
+import type { Conversation, PortfolioReview } from "../../api/types";
 import { MarkdownContent } from "../../components/MarkdownContent";
 
 function when(value: string) {
@@ -36,7 +37,7 @@ export function ChatPage() {
   }
 
   useEffect(() => {
-    api<FeatureStatus>("/dashboard/features").then((features) => {
+    loadFeatures().then((features) => {
       setEnabled(features.ai);
       if (features.ai) refresh().catch((reason: Error) => setError(reason.message));
     }).catch((reason: Error) => setError(reason.message));

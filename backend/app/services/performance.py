@@ -21,9 +21,7 @@ from app.schemas.performance import (
     ReturnMetric,
 )
 
-Sampling = Literal[
-    "daily", "weekly_average", "monthly_average", "adaptive_average"
-]
+Sampling = Literal["daily", "weekly_average", "monthly_average", "adaptive_average"]
 RANGE_DAYS: dict[str, int] = {
     "1w": 6,
     "1m": 30,
@@ -61,9 +59,7 @@ def _xirr(cash_flows: list[tuple[date, Decimal]]) -> Decimal | None:
     if len(cash_flows) < 2:
         return None
     amounts = [float(amount) for _, amount in cash_flows]
-    if not any(amount < 0 for amount in amounts) or not any(
-        amount > 0 for amount in amounts
-    ):
+    if not any(amount < 0 for amount in amounts) or not any(amount > 0 for amount in amounts):
         return None
     origin = cash_flows[0][0]
 
@@ -120,16 +116,13 @@ def _sample_history_points(
             PortfolioHistoryPoint(
                 date=bucket[-1].date,
                 total_value_eur=_round_money(
-                    sum((point.total_value_eur for point in bucket), Decimal(0))
-                    / divisor
+                    sum((point.total_value_eur for point in bucket), Decimal(0)) / divisor
                 ),
                 net_invested_eur=_round_money(
-                    sum((point.net_invested_eur for point in bucket), Decimal(0))
-                    / divisor
+                    sum((point.net_invested_eur for point in bucket), Decimal(0)) / divisor
                 ),
                 invested_value_eur=_round_money(
-                    sum((point.invested_value_eur for point in bucket), Decimal(0))
-                    / divisor
+                    sum((point.invested_value_eur for point in bucket), Decimal(0)) / divisor
                 ),
             )
         )
@@ -221,10 +214,7 @@ def _reconstruct_weekly_history(
                     elif currency == "USD":
                         rate_position = bisect_right(rate_dates, trade_date) - 1
                         if rate_position >= 0:
-                            value = (
-                                abs(item.value)
-                                * rates_by_date[rate_dates[rate_position]]
-                            )
+                            value = abs(item.value) * rates_by_date[rate_dates[rate_position]]
                 if item.transaction_type is TransactionType.BUY:
                     quantities[instrument_id] += quantity
                     if value is not None:
@@ -282,6 +272,30 @@ def _reconstruct_weekly_history(
     ]
 
 
+def time_weighted_growth(
+    points: list[PortfolioHistoryPoint], external_flows: dict[date, Decimal]
+) -> list[tuple[date, Decimal]]:
+    """Chain returns, treating interval cash flows as end-of-period contributions."""
+    if not points or points[0].total_value_eur <= 0:
+        return []
+    index = Decimal(100)
+    result = [(points[0].date, index)]
+    flows = iter(sorted(external_flows.items()))
+    pending = next(flows, None)
+    for previous, current in zip(points, points[1:], strict=False):
+        flow = Decimal(0)
+        while pending is not None and pending[0] <= current.date:
+            if pending[0] > previous.date:
+                flow += pending[1]
+            pending = next(flows, None)
+        if previous.total_value_eur <= 0:
+            # Return after capital reaches zero cannot be chained reliably.
+            break
+        index *= (current.total_value_eur - flow) / previous.total_value_eur
+        result.append((current.date, index))
+    return result
+
+
 class PerformanceService:
     def __init__(self, repository: PortfolioRepository) -> None:
         self.repository = repository
@@ -320,8 +334,7 @@ class PerformanceService:
         for row in snapshots:
             by_connection[row.connection_id].append(row)
         coverage_start = max(
-            connection_rows[0].snapshot.snapshot_date
-            for connection_rows in by_connection.values()
+            connection_rows[0].snapshot.snapshot_date for connection_rows in by_connection.values()
         )
         end_date = max(row.snapshot.snapshot_date for row in snapshots)
         requested_start = (
@@ -330,9 +343,7 @@ class PerformanceService:
             else end_date - timedelta(days=RANGE_DAYS[selected_range])
         )
         start_date = (
-            coverage_start
-            if requested_start is None
-            else max(coverage_start, requested_start)
+            coverage_start if requested_start is None else max(coverage_start, requested_start)
         )
 
         external_flows: dict[date, Decimal] = defaultdict(Decimal)
@@ -386,11 +397,7 @@ class PerformanceService:
 
         latest_by_connection: dict[uuid.UUID, SnapshotRow] = {
             connection_id: max(
-                (
-                    row
-                    for row in connection_rows
-                    if row.snapshot.snapshot_date <= coverage_start
-                ),
+                (row for row in connection_rows if row.snapshot.snapshot_date <= coverage_start),
                 key=lambda row: row.snapshot.snapshot_date,
             )
             for connection_id, connection_rows in by_connection.items()
@@ -424,16 +431,12 @@ class PerformanceService:
                     latest_by_connection[connection_id] = new_snapshot
             if current_date >= start_date and latest_by_connection:
                 total = sum(
-                    (
-                        row.snapshot.total_value_eur
-                        for row in latest_by_connection.values()
-                    ),
+                    (row.snapshot.total_value_eur for row in latest_by_connection.values()),
                     Decimal(0),
                 )
                 invested_value = sum(
                     (
-                        row.snapshot.total_value_eur
-                        - (row.snapshot.reported_pnl_eur or Decimal(0))
+                        row.snapshot.total_value_eur - (row.snapshot.reported_pnl_eur or Decimal(0))
                         for row in latest_by_connection.values()
                     ),
                     Decimal(0),
@@ -477,29 +480,13 @@ class PerformanceService:
                 period_flows[flow_date] += value
         xirr_flows = [(first_point.date, -first_point.total_value_eur)]
         xirr_flows.extend(
-            (flow_date, -value)
-            for flow_date, value in sorted(period_flows.items())
-            if value
+            (flow_date, -value) for flow_date, value in sorted(period_flows.items()) if value
         )
         xirr_flows.append((last_point.date, last_point.total_value_eur))
         xirr_value = _xirr(xirr_flows) if first_point.date < last_point.date else None
 
-        twr_factor = Decimal(1)
-        twr_periods = 0
-        for previous, current in zip(points, points[1:], strict=False):
-            if previous.total_value_eur <= 0:
-                continue
-            flow = period_flows[current.date]
-            period_return = (
-                current.total_value_eur - previous.total_value_eur - flow
-            ) / previous.total_value_eur
-            twr_factor *= Decimal(1) + period_return
-            twr_periods += 1
-        twr_value = (
-            ((twr_factor - 1) * 100).quantize(Decimal("0.01"))
-            if twr_periods
-            else None
-        )
+        growth = time_weighted_growth(points, period_flows)
+        twr_value = (growth[-1][1] - 100).quantize(Decimal("0.01")) if len(growth) > 1 else None
 
         period_income = sum(
             (
@@ -518,20 +505,12 @@ class PerformanceService:
             Decimal(0),
         )
         net_contributions = sum(period_flows.values(), Decimal(0))
-        total_return = (
-            last_point.total_value_eur
-            - first_point.total_value_eur
-            - net_contributions
-        )
-        currency_movement = self._currency_movement(
-            snapshots, first_point.date, last_point.date
-        )
+        total_return = last_point.total_value_eur - first_point.total_value_eur - net_contributions
+        currency_movement = self._currency_movement(snapshots, first_point.date, last_point.date)
         capital_gain = total_return - period_income + period_fees - currency_movement
         status = "partial" if missing_fx else "available"
         metric_message = (
-            f"{missing_fx} cash-flow event(s) lack an EUR value."
-            if missing_fx
-            else None
+            f"{missing_fx} cash-flow event(s) lack an EUR value." if missing_fx else None
         )
         notices = [
             "Consolidated history begins when every current source is represented.",
@@ -614,10 +593,7 @@ class PerformanceService:
                     and snapshot.snapshot_date > start_date
                     and previous.snapshot.total_value != 0
                 ):
-                    old_rate = (
-                        previous.snapshot.total_value_eur
-                        / previous.snapshot.total_value
-                    )
+                    old_rate = previous.snapshot.total_value_eur / previous.snapshot.total_value
                     new_rate = snapshot.total_value_eur / snapshot.total_value
                     movement += previous.snapshot.total_value * (new_rate - old_rate)
                 previous = row

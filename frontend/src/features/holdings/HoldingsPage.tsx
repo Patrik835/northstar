@@ -1,11 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { api } from "../../api/client";
 import type {
-  ActivityResponse,
   AssetType,
   Broker,
-  Holding,
   HoldingSource,
   HoldingsResponse,
   ManualPosition,
@@ -14,200 +12,10 @@ import { EmptyState } from "../../components/EmptyState";
 import { CsvDownloadButton } from "../../components/CsvDownloadButton";
 import { brokerName } from "../../domain/brokers";
 import { Link } from "../../routing/Router";
-
-const eur = new Intl.NumberFormat("en-IE", {
-  style: "currency",
-  currency: "EUR",
-  maximumFractionDigits: 2,
-});
-const quantity = new Intl.NumberFormat("en-IE", { maximumFractionDigits: 8 });
-const assetLabels: Record<AssetType, string> = {
-  stock: "Stock",
-  etf: "ETF",
-  crypto: "Crypto",
-  cash: "Cash",
-  other: "Other",
-};
-
-type AssetGroup = "all" | "equities" | "crypto" | "other";
-type SortKey = "value" | "pnl";
-type SortDirection = "asc" | "desc";
-
-function inGroup(type: AssetType, group: AssetGroup) {
-  if (group === "all") return true;
-  if (group === "equities") return type === "stock" || type === "etf";
-  if (group === "crypto") return type === "crypto";
-  return type === "cash" || type === "other";
-}
-
-function sourceValue(source: HoldingSource) {
-  return Number(source.current_value_eur);
-}
-
-function sourceQuantity(source: HoldingSource) {
-  return Number(source.quantity);
-}
-
-function originalMoney(value: string, currency: string) {
-  const number = Number(value);
-  try {
-    return new Intl.NumberFormat("en-IE", {
-      style: "currency",
-      currency,
-      maximumFractionDigits: 4,
-    }).format(number);
-  } catch {
-    return `${quantity.format(number)} ${currency}`;
-  }
-}
-
-function timestamp(value: string | null) {
-  if (!value) return "Awaiting first valuation";
-  return new Date(value).toLocaleString(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  });
-}
-
-function valuationLabel(source: HoldingSource) {
-  if (source.valuation_source === "manual") return "Manual valuation";
-  if (source.valuation_source === "last_trade") return "Estimated from last trade";
-  if (source.valuation_source === "market") return "Market price";
-  if (source.valuation_source === "statement") return "Imported statement";
-  return "Provider value";
-}
-
-type PnlSummary = {
-  value: number;
-  percentage: number | null;
-  sourceCount: number;
-  totalSources: number;
-  calculatedCount: number;
-  hasPartialCoverage: boolean;
-};
-
-type SourcePnl = {
-  valueEur: number;
-  kind: "calculated" | "reported" | "manual";
-};
-
-function preferredSourcePnl(source: HoldingSource): SourcePnl | null {
-  if (source.performance.open_pnl_eur === null) return null;
-  return {
-    valueEur: Number(source.performance.open_pnl_eur),
-    kind: source.valuation_source === "manual"
-      ? "manual"
-      : source.performance.open_pnl_source === "calculated"
-        ? "calculated"
-        : "reported",
-  };
-}
-
-function summarizePnl(sources: HoldingSource[]): PnlSummary | null {
-  const available = sources.flatMap((source) => {
-    const pnl = preferredSourcePnl(source);
-    return pnl ? [{ source, pnl }] : [];
-  });
-  if (!available.length) return null;
-  const value = available.reduce(
-    (total, item) => total + item.pnl.valueEur,
-    0,
-  );
-  const coveredValue = available.reduce(
-    (total, item) => total + sourceValue(item.source),
-    0,
-  );
-  const costBasis = coveredValue - value;
-  return {
-    value,
-    percentage: costBasis > 0 ? (value * 100) / costBasis : null,
-    sourceCount: available.length,
-    totalSources: sources.length,
-    calculatedCount: available.filter((item) => item.pnl.kind === "calculated").length,
-    hasPartialCoverage: false,
-  };
-}
-
-function signedMoney(value: number) {
-  return `${value > 0 ? "+" : ""}${eur.format(value)}`;
-}
-
-function signedPercentage(value: number) {
-  return `${value > 0 ? "+" : ""}${value.toFixed(2)}%`;
-}
-
-function PnlLine({
-  summary,
-  unavailable = false,
-}: {
-  summary: PnlSummary | null;
-  unavailable?: boolean;
-}) {
-  if (!summary) {
-    return unavailable ? <span className="pnl-summary unavailable">P/L unavailable</span> : null;
-  }
-  const tone =
-    summary.value > 0 ? "positive" : summary.value < 0 ? "negative" : "neutral";
-  const partial = summary.sourceCount < summary.totalSources || summary.hasPartialCoverage;
-  return (
-    <span
-      className={`pnl-summary ${tone}`}
-      title={summary.calculatedCount
-        ? "Calculated from imported trades; broker-reported P/L is used where trade history is incomplete"
-        : "Broker-reported P/L"}
-    >
-      <span>Open P/L {signedMoney(summary.value)}</span>
-      {summary.percentage !== null && <span>{signedPercentage(summary.percentage)}</span>}
-      {partial && (
-        <em title={`Reported by ${summary.sourceCount} of ${summary.totalSources} sources`}>
-          partial
-        </em>
-      )}
-    </span>
-  );
-}
-
-function SourcePnlMetric({ source }: { source: HoldingSource }) {
-  const pnl = preferredSourcePnl(source);
-  if (!pnl) {
-    return (
-      <div>
-        <dt>P/L</dt>
-        <dd className="unavailable">Not available</dd>
-      </div>
-    );
-  }
-
-  const costBasis = sourceValue(source) - pnl.valueEur;
-  const pnlPercentage = costBasis > 0 ? (pnl.valueEur * 100) / costBasis : null;
-  const secondary = [
-    pnl.kind === "reported" && source.currency !== "EUR"
-      ? signedMoney(pnl.valueEur)
-      : null,
-    pnlPercentage !== null ? signedPercentage(pnlPercentage) : null,
-  ].filter(Boolean).join(" · ");
-
-  return (
-    <div>
-      <dt>Open P/L</dt>
-      <dd className={`pnl-source-value ${pnl.valueEur >= 0 ? "positive" : "negative"}`}>
-        <span>
-          {pnl.kind === "reported" && source.reported_pnl !== null
-            ? originalMoney(source.reported_pnl, source.currency)
-            : signedMoney(pnl.valueEur)}
-        </span>
-        {secondary && <small>{secondary}</small>}
-        <small>
-          {pnl.kind === "manual"
-            ? "Calculated from your manual prices"
-            : pnl.kind === "calculated"
-              ? "Calculated from trades"
-              : "Reported by broker"}
-        </small>
-      </dd>
-    </div>
-  );
-}
+import { AssetPicker } from "./AssetPicker";
+import type { AssetOption } from "./AssetPicker";
+import { eur, quantity, assetLabels, inGroup, sourceValue, sourceQuantity, timestamp, summarizePnl, combinePerformance, type AssetGroup, type SortKey, type SortDirection } from "./holdingMath";
+import { PnlLine, HoldingDetails } from "./HoldingDetails";
 
 export function HoldingsPage() {
   const [portfolio, setPortfolio] = useState<HoldingsResponse | null>(null);
@@ -226,6 +34,17 @@ export function HoldingsPage() {
   const [manualError, setManualError] = useState("");
   const [manualNotice, setManualNotice] = useState("");
   const [savingManual, setSavingManual] = useState(false);
+  const [selectedAsset, setSelectedAsset] = useState<AssetOption | null>(null);
+  const purchasePriceInput = useRef<HTMLInputElement>(null);
+  const manualAssets = useMemo<AssetOption[]>(() => (portfolio?.holdings ?? [])
+    .filter((holding) => ["stock", "etf", "crypto"].includes(holding.asset_type))
+    .flatMap((holding) => holding.sources.map((source) => ({
+      ticker: source.canonical_symbol,
+      name: source.canonical_name === source.canonical_symbol
+        ? source.provider_name ?? source.canonical_name : source.canonical_name,
+      asset_type: holding.asset_type as AssetOption["asset_type"],
+      isin: source.canonical_isin,
+    }))), [portfolio]);
 
   const loadPortfolio = useCallback(() => {
     return api<HoldingsResponse>("/holdings")
@@ -239,12 +58,29 @@ export function HoldingsPage() {
 
   function openManualCreate() {
     setManualError("");
+    setSelectedAsset(null);
     setManualEditor({ id: null, source: null, assetType: "stock" });
   }
+
+  // Deep link from onboarding: /holdings?add=1 opens the "Add a position" form directly.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("add") !== "1") return;
+    params.delete("add");
+    const query = params.toString();
+    window.history.replaceState({}, "", `${window.location.pathname}${query ? `?${query}` : ""}`);
+    openManualCreate();
+  }, []);
 
   function openManualEdit(source: HoldingSource, assetType: AssetType) {
     if (source.broker !== "manual") return;
     setManualError("");
+    setSelectedAsset({
+      ticker: source.provider_symbol,
+      name: source.provider_name ?? source.canonical_name,
+      asset_type: assetType === "etf" || assetType === "crypto" ? assetType : "stock",
+      isin: source.canonical_isin,
+    });
     setManualEditor({
       id: source.provider_instrument_id.replace(/^MANUAL:/, ""),
       source,
@@ -255,20 +91,25 @@ export function HoldingsPage() {
   async function submitManual(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!manualEditor) return;
+    if (!selectedAsset) {
+      setManualError("Choose an asset from the suggestions first.");
+      return;
+    }
     setSavingManual(true);
     setManualError("");
     const form = new FormData(event.currentTarget);
     const averagePrice = String(form.get("average_price") ?? "").trim();
-    const isin = String(form.get("isin") ?? "").trim();
+    const currency = String(form.get("currency") ?? "EUR");
     const payload = {
-      ticker: String(form.get("ticker") ?? ""),
-      name: String(form.get("name") ?? "") || null,
-      asset_type: String(form.get("asset_type") ?? "stock"),
+      ticker: selectedAsset.ticker,
+      name: selectedAsset.name,
+      asset_type: selectedAsset.asset_type,
       quantity: String(form.get("quantity") ?? ""),
       average_price: averagePrice || null,
-      current_price: String(form.get("current_price") ?? ""),
-      currency: String(form.get("currency") ?? "EUR"),
-      isin: isin || null,
+      current_price: null,
+      currency,
+      isin: selectedAsset.isin,
+      note: String(form.get("note") ?? "").trim() || null,
     };
     try {
       await api<ManualPosition>(
@@ -339,16 +180,10 @@ export function HoldingsPage() {
       const totalQuantity = isCompanyGroup
         ? null
         : sources.reduce((total, source) => total + sourceQuantity(source), 0);
-      const calculatedSources = sources.filter(
-        (source) => source.gain_coverage === "complete" && source.calculated_cost_eur !== null,
-      );
-      const calculatedCost = calculatedSources.length
-        ? calculatedSources.reduce(
-          (total, source) => total + Number(source.calculated_cost_eur), 0,
-        ) : null;
       return [
         {
           ...holding,
+          performance: platform === "all" ? holding.performance : combinePerformance(sources),
           grouping: isCompanyGroup ? ("company" as const) : ("instrument" as const),
           instrument_count: instrumentIds.size,
           symbol: isCompanyGroup ? symbols.join(" / ") : symbols[0],
@@ -363,14 +198,6 @@ export function HoldingsPage() {
           is_stale: staleConnectionIds.size > 0,
           stale_source_count: staleConnectionIds.size,
           has_estimated_value: sources.some((source) => source.is_estimated),
-          calculated_cost_eur: calculatedCost === null ? null : String(calculatedCost),
-          calculated_gain_eur: calculatedCost === null ? null : String(totalValue - calculatedCost),
-          calculated_gain_percentage: calculatedCost
-            ? String(((totalValue - calculatedCost) * 100) / calculatedCost) : null,
-          gain_coverage: calculatedSources.length === sources.length &&
-            sources.every((source) => source.gain_coverage === "complete")
-            ? "complete" as const
-            : calculatedSources.length ? "partial" as const : "unavailable" as const,
         },
       ];
     });
@@ -463,7 +290,7 @@ export function HoldingsPage() {
     <>
       <header className="page-header holdings-header">
         <div>
-          <p className="eyebrow">Canonical portfolio</p>
+          <p className="eyebrow">All your investments</p>
           <h1>Holdings</h1>
           <p className="page-intro">
             One clean view of every asset, with each broker position preserved underneath.
@@ -472,7 +299,7 @@ export function HoldingsPage() {
         <div className="page-header-actions">
           <div className="holdings-header-buttons">
             <button type="button" className="secondary" onClick={openManualCreate}>
-              Add manual position
+              Add holding
             </button>
             <CsvDownloadButton path={exportPath} disabled={!portfolio} />
           </div>
@@ -502,7 +329,7 @@ export function HoldingsPage() {
         <p className="holdings-warning">
           {portfolio.unmatched_positions} existing position
           {portfolio.unmatched_positions === 1 ? " is" : "s are"} waiting for the next
-          broker sync to receive a canonical match.
+          broker sync to be matched with your other holdings.
         </p>
       ) : null}
 
@@ -725,118 +552,73 @@ export function HoldingsPage() {
             onMouseDown={(event) => event.stopPropagation()}
           >
             <div>
-              <p className="eyebrow">Manual valuation</p>
+              <p className="eyebrow">Manual holding</p>
               <h2>{manualEditor.id ? "Edit position" : "Add a position"}</h2>
               <p className="muted manual-position-intro">
-                Use this for an asset you cannot connect or export. Update the current price
-                whenever its value changes.
+                Choose your asset and enter what you bought.
               </p>
             </div>
             <div className="manual-position-grid">
+              <AssetPicker value={selectedAsset} assets={manualAssets} onChange={(asset) => {
+                setSelectedAsset(asset);
+                if (asset) purchasePriceInput.current?.focus();
+              }} />
               <label>
-                Asset type
-                <select
-                  name="asset_type"
-                  defaultValue={manualEditor.assetType}
-                  required
-                >
-                  <option value="stock">Stock</option>
-                  <option value="etf">ETF</option>
-                  <option value="crypto">Crypto</option>
-                </select>
-              </label>
-              <label>
-                Ticker or symbol
-                <input
-                  name="ticker"
-                  defaultValue={manualEditor.source?.provider_symbol ?? ""}
-                  placeholder="AAPL or BTC"
-                  maxLength={32}
-                  required
-                />
-              </label>
-              <label className="manual-wide-field">
-                Name <small className="label-hint">optional</small>
-                <input
-                  name="name"
-                  defaultValue={manualEditor.source?.provider_name ?? ""}
-                  placeholder="Apple Inc."
-                  maxLength={200}
-                />
+                Purchase price <small className="label-hint">per unit</small>
+                <span className="manual-price-input">
+                  <input
+                    name="average_price"
+                    aria-label="Purchase price per unit"
+                    ref={purchasePriceInput}
+                    type="number"
+                    min="0.00000001"
+                    step="any"
+                    defaultValue={manualEditor.source?.average_price ?? ""}
+                    placeholder="100.00"
+                    required
+                  />
+                  <select name="currency" aria-label="Purchase price currency"
+                    defaultValue={manualEditor.source?.currency ?? "EUR"}>
+                    {[...new Set(["EUR", "USD", "GBP", "CHF", "CZK", "PLN", manualEditor.source?.currency])]
+                      .filter((code): code is string => Boolean(code))
+                      .map((code) => <option key={code} value={code}>{code}</option>)}
+                  </select>
+                </span>
               </label>
               <label>
                 Quantity
                 <input
                   name="quantity"
                   type="number"
-                  min="0"
+                  min="0.0000000001"
                   step="any"
                   defaultValue={manualEditor.source?.quantity ?? ""}
                   placeholder="2.5"
                   required
                 />
               </label>
-              <label>
-                Currency
-                <input
-                  name="currency"
-                  defaultValue={manualEditor.source?.currency ?? "EUR"}
-                  placeholder="EUR"
-                  minLength={3}
-                  maxLength={3}
-                  required
-                />
-              </label>
-              <label>
-                Average purchase price <small className="label-hint">optional, per unit</small>
-                <input
-                  name="average_price"
-                  type="number"
-                  min="0"
-                  step="any"
-                  defaultValue={manualEditor.source?.average_price ?? ""}
-                  placeholder="100.00"
-                />
-              </label>
-              <label>
-                Current price <small className="label-hint">per unit</small>
-                <input
-                  name="current_price"
-                  type="number"
-                  min="0"
-                  step="any"
-                  defaultValue={
-                    manualEditor.source
-                      ? String(
-                        Number(manualEditor.source.current_value)
-                        / Number(manualEditor.source.quantity),
-                      )
-                      : ""
-                  }
-                  placeholder="125.00"
-                  required
-                />
-              </label>
               <label className="manual-wide-field">
-                ISIN <small className="label-hint">optional for stocks and ETFs</small>
-                <input
-                  name="isin"
-                  defaultValue={manualEditor.source?.canonical_isin ?? ""}
-                  placeholder="US0378331005"
-                  maxLength={12}
+                Note <small className="label-hint">optional</small>
+                <textarea
+                  name="note"
+                  defaultValue={manualEditor.source?.note ?? ""}
+                  placeholder="Anything you want to remember about this holding"
+                  maxLength={2000}
+                  rows={3}
                 />
               </label>
             </div>
             <p className="manual-value-note">
-              Portfolio value = quantity × current price. Manual prices are clearly labelled
-              and are not refreshed automatically.
+              Entries for the same asset combine into one position with a weighted purchase price.
+              Market prices update when you save or reload holdings. If a price is unavailable,
+              the last valuation is kept; new holdings fall back to purchase cost.
             </p>
             {manualError && <p className="connection-error" role="alert">{manualError}</p>}
             <div className="button-row">
               <button type="button" className="text-button" onClick={() => setManualEditor(null)}>
                 Cancel
               </button>
-              <button type="submit" className="primary" disabled={savingManual}>
+              <button type="submit" className="primary" disabled={savingManual || !selectedAsset}>
                 {savingManual ? "Saving…" : manualEditor.id ? "Save changes" : "Add position"}
               </button>
             </div>
@@ -844,221 +626,5 @@ export function HoldingsPage() {
         </div>
       )}
     </>
-  );
-}
-
-type ScopedHolding = Holding & {
-  totalValue: number;
-  totalQuantity: number | null;
-  pnl: PnlSummary | null;
-};
-
-function performanceTone(value: number) {
-  return value > 0 ? "positive" : value < 0 ? "negative" : "neutral";
-}
-
-function HoldingPerformanceSummary({ holding }: { holding: ScopedHolding }) {
-  const performance = holding.performance;
-  const income = Number(performance.income_eur);
-  const fees = Number(performance.fees_eur);
-  const hasImportedResults = performance.coverage !== "unavailable" || income !== 0 || fees !== 0;
-  if (!hasImportedResults) return null;
-
-  const realized = performance.realized_pnl_eur === null
-    ? null
-    : Number(performance.realized_pnl_eur);
-  const totalReturn = performance.total_return_eur === null
-    ? null
-    : Number(performance.total_return_eur);
-  return (
-    <section className="holding-performance-strip" aria-label="Imported performance history">
-      <div className="performance-strip-heading">
-        <span>Performance history</span>
-        <small>
-          {performance.coverage === "complete"
-            ? "Complete trade coverage"
-            : "Partial history · incomplete totals are hidden"}
-        </small>
-      </div>
-      <div>
-        <small>{performance.coverage === "complete" ? "Realized" : "Known realized"}</small>
-        <strong className={realized === null ? "unavailable" : performanceTone(realized)}>
-          {realized === null ? "—" : signedMoney(realized)}
-        </strong>
-      </div>
-      <div>
-        <small>Income</small>
-        <strong>{eur.format(income)}</strong>
-      </div>
-      <div>
-        <small>Fees</small>
-        <strong>{fees ? `−${eur.format(fees)}` : eur.format(0)}</strong>
-      </div>
-      <div>
-        <small>Total return</small>
-        <strong className={totalReturn === null ? "unavailable" : performanceTone(totalReturn)}>
-          {totalReturn === null ? "—" : signedMoney(totalReturn)}
-        </strong>
-      </div>
-    </section>
-  );
-}
-
-function HoldingDetails({
-  holding,
-  onEditManual,
-  onDeleteManual,
-}: {
-  holding: ScopedHolding;
-  onEditManual: (source: HoldingSource, assetType: AssetType) => void;
-  onDeleteManual: (source: HoldingSource) => void;
-}) {
-  const [activity, setActivity] = useState<ActivityResponse | null>(null);
-  const costBasis = holding.performance.cost_basis_eur === null
-    ? null
-    : Number(holding.performance.cost_basis_eur);
-
-  useEffect(() => {
-    const params = new URLSearchParams({
-      holding_key: holding.key, limit: "5", display_only: "true",
-    });
-    api<ActivityResponse>(`/activity?${params.toString()}`).then(setActivity).catch(() => null);
-  }, [holding.key]);
-  return (
-    <div className="holding-details">
-      <div className="canonical-strip">
-        <span className="canonical-check">✓</span>
-        <div>
-          <strong>
-            {holding.grouping === "company" ? "Company exposure" : "Canonical instrument"}
-          </strong>
-          {holding.grouping === "company" ? (
-            <p>
-              {holding.instrument_count} listed securities shown together · quantities remain
-              separate below
-            </p>
-          ) : (
-            <p>
-              {holding.isin
-                ? `Matched by ISIN ${holding.isin}`
-                : `Matched as ${holding.symbol}`}
-              {holding.sources.length > 1
-                ? ` · ${holding.sources.length} broker aliases combined`
-                : " · 1 broker alias"}
-            </p>
-          )}
-        </div>
-        <span className="canonical-metrics">
-          {costBasis !== null && costBasis >= 0 && (
-            <span className="cost-basis-inline">
-              <small>Cost basis</small>
-              <strong>{eur.format(costBasis)}</strong>
-            </span>
-          )}
-          <PnlLine summary={holding.pnl} />
-        </span>
-      </div>
-      <div className="source-detail-grid">
-        {holding.sources.map((source) => (
-          <article
-            className="source-detail"
-            key={`${source.connection_id}:${source.provider_instrument_id}`}
-          >
-            <header>
-              <span className={`source-dot ${source.broker}`} />
-              <div>
-                <strong>{brokerName(source.broker)}</strong>
-                <small>{source.provider_symbol}</small>
-              </div>
-              <strong>{eur.format(sourceValue(source))}</strong>
-            </header>
-            <dl>
-              <div>
-                <dt>Quantity</dt>
-                <dd>{quantity.format(sourceQuantity(source))}</dd>
-              </div>
-              <div>
-                <dt>Average price</dt>
-                <dd>
-                  {source.average_price
-                    ? originalMoney(source.average_price, source.currency)
-                    : "Not supplied"}
-                </dd>
-              </div>
-              <div>
-                <dt>Original value</dt>
-                <dd>{originalMoney(source.current_value, source.currency)}</dd>
-              </div>
-              <SourcePnlMetric source={source} />
-              {source.performance.realized_pnl_eur !== null && (
-                <div>
-                  <dt>Realized P/L</dt>
-                  <dd className={performanceTone(Number(source.performance.realized_pnl_eur))}>
-                    {signedMoney(Number(source.performance.realized_pnl_eur))}
-                  </dd>
-                </div>
-              )}
-              {Number(source.performance.income_eur) !== 0 && (
-                <div>
-                  <dt>Imported income</dt>
-                  <dd>{eur.format(Number(source.performance.income_eur))}</dd>
-                </div>
-              )}
-              <div>
-                <dt>Security</dt>
-                <dd title={source.canonical_name}>
-                  {source.canonical_symbol}
-                  {source.canonical_isin ? ` · ${source.canonical_isin}` : ""}
-                </dd>
-              </div>
-              <div>
-                <dt>Provider ID</dt>
-                <dd title={source.provider_instrument_id}>{source.provider_instrument_id}</dd>
-              </div>
-            </dl>
-            <footer>
-              <span>
-                {source.valued_at ? `Valued ${timestamp(source.valued_at)}` : "No valuation date"}
-                {` · ${valuationLabel(source)}`}
-                {source.is_stale ? " · Stale" : ""}
-              </span>
-              {source.broker === "manual" && (
-                <span className="manual-source-actions">
-                  <button
-                    type="button"
-                    className="text-button"
-                    onClick={() => onEditManual(source, holding.asset_type)}
-                  >
-                    Edit
-                  </button>
-                  <button
-                    type="button"
-                    className="text-button danger"
-                    onClick={() => void onDeleteManual(source)}
-                  >
-                    Delete
-                  </button>
-                </span>
-              )}
-            </footer>
-          </article>
-        ))}
-      </div>
-      <HoldingPerformanceSummary holding={holding} />
-      <div className="holding-activity-preview">
-        <div className="panel-heading">
-          <div><p className="eyebrow">Recent activity</p><h3>{holding.name}</h3></div>
-          <Link to="/activity">View all activity</Link>
-        </div>
-        {activity?.items.length ? activity.items.map((item) => (
-          <div className="holding-activity-row" key={item.id}>
-            <span className={`activity-kind ${item.transaction_type}`}>{item.transaction_type}</span>
-            <strong>{item.symbol}</strong>
-            <span>{new Date(item.executed_at).toLocaleDateString()}</span>
-            <span>{item.value_eur === null ? `${originalMoney(item.value, item.currency)}` : eur.format(Number(item.value_eur))}</span>
-          </div>
-        )) : <p className="muted">No imported activity for this holding yet.</p>}
-      </div>
-    </div>
   );
 }

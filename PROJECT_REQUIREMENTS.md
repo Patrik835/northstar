@@ -73,6 +73,9 @@ required outcome of each product phase.
 - Provider-specific file import only where a valuable account cannot be connected through
   an official supported API, initially Trading 212 Crypto, XTB, Trade Republic, and
   Scalable Capital.
+- A deliberately small manual-position fallback for stocks, ETFs, and crypto that cannot
+  be connected or exported. Users select an asset from autocomplete suggestions, enter
+  purchase price and quantity, and optionally add a note. Market quotes refresh on save/read; repeated entries merge using weighted purchase costs.
 - Visible freshness, sync progress, partial-import warnings, and safe error recovery.
 
 ### Phase 2 — Portfolio Analytics and Dashboard
@@ -301,8 +304,8 @@ errors; provider-specific payloads do not leak into route handlers or the fronte
 
 ### 6.7 Provider-Specific File Data
 
-- File import is used selectively when an important provider account has no usable official API;
-  Northstar does not ask users to maintain generic stock or crypto records manually.
+- File import is used selectively when an important provider account has no usable official API.
+  A manual holding is a last-resort fallback when neither an API nor native export is usable.
 - Trading 212 Crypto uses its official History CSV export because Trading 212's Public API
   currently supports only Invest and Stocks ISA accounts. Imports reconstruct crypto
   holdings, deduplicate overlapping files, retain transaction provenance, and label
@@ -322,11 +325,30 @@ errors; provider-specific payloads do not leak into route handlers or the fronte
   instruments through verified ISINs. Because transaction exports do not report live
   positions, current values and open P/L use the latest imported trade price and must remain
   visibly marked as estimated.
-- Manual entry is reserved for Phase 4 assets that are naturally manually valued, starting
-  with real estate. Unsupported stock/ETF/crypto brokers are not represented through
-  generic manual holdings or transaction forms.
+- Generic transaction entry remains out of scope; the fallback stores only a current
+  position and optional average purchase price.
 
-### 6.8 Synchronization Policy
+### 6.8 Manual Position Fallback
+
+- Users can create, edit, and delete manual Stock, ETF, and Crypto positions from Holdings.
+- Show four fields: asset search/selection, purchase price per unit with an inline currency
+  selector (EUR default), quantity, and optional note. Infer ticker, type, name, and ISIN
+  from the selected asset. Suggestions cover the top 3,000 worldwide listed companies and
+  top 150 cryptocurrencies by market capitalization, existing ETF suggestions, and the user's
+  portfolio. Include stablecoins. Bundle a dated snapshot for local search and provide a
+  validated refresh command that preserves the previous catalogue when sources fail.
+- Require positive quantity and purchase price. Without a separately supplied current
+  price, fetch a market quote on save and portfolio reads. Compute open P/L from purchase
+  cost when a quote is available; preserve previous values on failure. Merge repeated entries
+  for the same asset using weighted purchase costs. Store notes per user-owned position.
+- Convert values and optional open P/L to EUR through the shared ECB FX service, preserve
+  the entered currency, and update the current day's portfolio snapshot after every change.
+- Keep the source visibly labelled Manual/estimated and show market quote timestamps and refresh failures.
+- Reuse canonical ticker/ISIN matching without allowing user-provided manual names to
+  overwrite shared provider-verified instrument metadata.
+- Manual positions are tenant-scoped and excluded from connector setup and Sync all.
+
+### 6.9 Synchronization Policy
 
 - `PORTFOLIO_SYNC_MINUTES` is configurable, defaults to `120`, and should be kept between
   `60` and `120` for the initial deployment unless provider limits require a slower rate.
@@ -502,8 +524,9 @@ Status meanings:
 | Bybit EU connector | Partial | Signed read-only V5 authentication, Unified and Funding balances, USD/Spot valuation, Spot executions and fees, completed deposits/withdrawals, stable deduplication, bounded initial history, snapshots, refresh/scheduling, and mocked contracts are implemented against `api.bybit.eu`. The legacy native CSV/XLSX importer remains as a compatibility path. Real-account verification and broader Bybit product/history coverage remain. |
 | Interactive Brokers connector | Partial | Reporting-only Flex token authentication, bounded report generation/retrieval, XML positions/cash/average cost/P&L, trades/commissions/dividends/cash movements, canonical IDs, independent NAV, daily scheduling, 48-hour freshness, and mocked contracts are implemented. A real-account Flex Query smoke test and coverage across all IBKR asset/report variants remain. |
 | eToro periodic connector and month-end history | Partial | Public API authentication, aggregate positions/cash/copy value, instrument metadata, dedicated Real-account P&L enrichment, provider/EUR P&L persistence, source-total reconciliation, current and historical opening buys, closed-trade exits, valuations, versioned backfill, manual/periodic/month-end sync, and mocked contracts exist. The official API does not expose a dividend ledger; broader history reconciliation and exact coverage of every eToro product remain. |
-| Provider-specific file data | Complete | Trading 212 Crypto CSV, native XTB CSV/XLSX, and native Trade Republic/Scalable Capital transaction CSV imports validate atomically, prevent duplicate activity, preserve valuation provenance, and support repeat imports. XTB supplies current position/P&L data; Trade Republic and Scalable rebuild holdings and clearly mark last-trade valuations as estimates. Generic stock/crypto files and manual entry remain intentionally out of scope. |
-| Canonical instruments and broker aliases | Complete | Global instruments retain ISIN/symbol identity while provider aliases preserve Trading 212 Invest, Trading 212 Crypto, Binance, Bybit, Interactive Brokers, eToro, XTB, Trade Republic, and Scalable Capital identifiers. Sync/import resolution combines matching securities and crypto across platforms. |
+| Provider-specific file data | Complete | Trading 212 Crypto CSV, native XTB CSV/XLSX, and native Trade Republic/Scalable Capital transaction CSV imports validate atomically, prevent duplicate activity, preserve valuation provenance, and support repeat imports. XTB supplies current position/P&L data; Trade Republic and Scalable rebuild holdings and clearly mark last-trade valuations as estimates. Generic stock/crypto file templates remain intentionally out of scope. |
+| Manual stock/ETF/crypto positions | Complete | Holdings supports tenant-scoped create, edit, and delete with asset autocomplete, purchase price, quantity, and an optional note. Market quotes refresh on save and portfolio reads, with EUR open P/L, explicit failure status, and daily snapshots. Repeated entries merge with weighted purchase costs. No transaction history is implied. |
+| Canonical instruments and broker aliases | Complete | Global instruments retain ISIN/symbol identity while provider aliases preserve Trading 212 Invest, Trading 212 Crypto, Binance, Bybit, Interactive Brokers, eToro, XTB, Trade Republic, Scalable Capital, and manual identifiers. Sync/import/manual resolution combines matching securities and crypto across platforms. |
 | Automatic data-quality and reconciliation | Partial | Trading 212, Interactive Brokers, and eToro synchronization silently compare imported holdings against independently reported provider totals and warn only beyond both 3% and EUR 5. Binance and Bybit have no independent comparison total; overlap deduplication remains automatic. Broader transaction-level reconciliation remains. |
 | FX conversion and historical market-data cache | Complete | ECB working-day rates are fetched, persisted by publication date, cached in-process and across processes, looked up by date, converted through EUR, and backed by the newest stored rate set during temporary ECB failures. Alpha Vantage weekly equity and USD/EUR series are persisted for reconstructed history; calls are paced, stop cleanly on provider limits, prioritize larger holdings, and resume on daily runs. |
 | Scheduled synchronization | Partial | APScheduler refreshes Trading 212, Binance, Bybit, and eToro every 120 minutes by default, runs Interactive Brokers Flex daily, and adds eToro month-end and daily ECB runs. Connection syncs persist running/success/partial/error status, triggers, counts, timestamps, and safe details. Safe GET requests use bounded exponential backoff for transient failures and honor provider cooldown headers; stuck-run recovery and distributed-worker safety remain. |

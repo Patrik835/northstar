@@ -57,9 +57,7 @@ def transaction_holding_key(row: TransactionRow) -> str | None:
     if instrument is None:
         return None
     company = (
-        company_identity(instrument.name)
-        if instrument.asset_type is AssetType.STOCK
-        else None
+        company_identity(instrument.name) if instrument.asset_type is AssetType.STOCK else None
     )
     return f"company:{company[0]}" if company else str(instrument.id)
 
@@ -75,11 +73,7 @@ def _transaction_source_key(row: TransactionRow) -> str:
 def _position_source_key(row: HoldingPositionRow) -> str:
     instrument = row.instrument
     position = row.position
-    return (
-        str(instrument.id)
-        if instrument is not None
-        else f"raw:{position.ticker.casefold()}"
-    )
+    return str(instrument.id) if instrument is not None else f"raw:{position.ticker.casefold()}"
 
 
 def _open_pnl_percentage(value: Decimal | None, current_value: Decimal) -> Decimal | None:
@@ -166,15 +160,9 @@ def _combine_performance(
     complete = all(item.coverage == "complete" for item in breakdowns)
     open_complete = len(open_values) == len(breakdowns)
     realized_complete = len(realized_values) == len(breakdowns)
-    sources = {
-        item.open_pnl_source
-        for item in breakdowns
-        if item.open_pnl_source != "unavailable"
-    }
+    sources = {item.open_pnl_source for item in breakdowns if item.open_pnl_source != "unavailable"}
     open_source = (
-        next(iter(sources))
-        if len(sources) == 1
-        else "mixed" if sources else "unavailable"
+        next(iter(sources)) if len(sources) == 1 else "mixed" if sources else "unavailable"
     )
     open_pnl = sum(open_values, Decimal(0)) if open_values else None
     # With partial coverage this is a known subtotal, not a complete lifetime result.
@@ -182,11 +170,7 @@ def _combine_performance(
     realized = sum(realized_values, Decimal(0)) if realized_values else None
     income = sum((item.income_eur for item in breakdowns), Decimal(0))
     fees = sum((item.fees_eur for item in breakdowns), Decimal(0))
-    cost = (
-        sum(cost_values, Decimal(0))
-        if len(cost_values) == len(breakdowns)
-        else None
-    )
+    cost = sum(cost_values, Decimal(0)) if len(cost_values) == len(breakdowns) else None
     total_return = (
         realized + open_pnl + income - fees
         if complete
@@ -262,9 +246,7 @@ def _calculated_cost(
         return CostResult(None, None, None, "unavailable")
     gain = current_value_eur - cost
     gain_percentage = (
-        (gain * 100 / cost).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-        if cost
-        else None
+        (gain * 100 / cost).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) if cost else None
     )
     return CostResult(cost, gain, gain_percentage, "complete")
 
@@ -320,8 +302,7 @@ class PortfolioService:
                 _position_source_key(position_row),
             )
             current_quantities[source_key] = (
-                current_quantities.get(source_key, Decimal(0))
-                + position_row.position.quantity
+                current_quantities.get(source_key, Decimal(0)) + position_row.position.quantity
             )
         ledgers_by_source = {
             source_key: average_cost_ledger(
@@ -331,9 +312,7 @@ class PortfolioService:
             for source_key, source_transactions in transactions_by_source.items()
         }
         metadata_loader = getattr(self.repository, "holding_metadata", None)
-        metadata_by_key = (
-            await metadata_loader(user_id) if metadata_loader is not None else {}
-        )
+        metadata_by_key = await metadata_loader(user_id) if metadata_loader is not None else {}
         total = sum((row.position.current_value_eur for row in rows), Decimal(0))
         reported_pnl_rows = [
             row.position.reported_pnl_eur
@@ -385,7 +364,16 @@ class PortfolioService:
             ]
             sources: list[HoldingSource] = []
             for row in sorted(instrument_rows, key=lambda item: item.broker.value):
-                freshness = connection_freshness(row.broker, row.last_synced_at)
+                freshness = connection_freshness(
+                    row.broker,
+                    (
+                        row.position.valued_at
+                        if row.position.valuation_source != "manual_cost"
+                        else None
+                    )
+                    if row.broker.value == "manual"
+                    else row.last_synced_at,
+                )
                 valued_at = getattr(row.position, "valued_at", None) or row.last_synced_at
                 source_key = (row.connection_id, _position_source_key(row))
                 relevant_transactions = transactions_by_source.get(source_key, [])
@@ -405,6 +393,7 @@ class PortfolioService:
                         provider_instrument_id=row.position.instrument_id,
                         provider_symbol=row.position.ticker,
                         provider_name=row.position.name,
+                        note=getattr(row.position, "note", None),
                         canonical_instrument_id=(row.instrument.id if row.instrument else None),
                         canonical_symbol=(
                             row.instrument.canonical_symbol
@@ -456,17 +445,19 @@ class PortfolioService:
             ]
             calculated_cost = (
                 sum(
-                    (
-                        source.calculated_cost_eur or Decimal(0)
-                        for source in calculated_sources
-                    ),
+                    (source.calculated_cost_eur or Decimal(0) for source in calculated_sources),
                     Decimal(0),
                 )
                 if calculated_sources
                 else None
             )
             calculated_gain = (
-                value - calculated_cost if calculated_cost is not None else None
+                sum(
+                    (source.calculated_gain_eur or Decimal(0) for source in calculated_sources),
+                    Decimal(0),
+                )
+                if calculated_sources
+                else None
             )
             calculated_gain_percentage = (
                 (calculated_gain * 100 / calculated_cost).quantize(
@@ -480,7 +471,9 @@ class PortfolioService:
                 if calculated_sources
                 and len(calculated_sources) == len(sources)
                 and all(source.gain_coverage == "complete" for source in sources)
-                else "partial" if calculated_sources else "unavailable"
+                else "partial"
+                if calculated_sources
+                else "unavailable"
             )
             holding_performance = _combine_performance(
                 [
@@ -503,7 +496,11 @@ class PortfolioService:
                     symbol=(instrument.canonical_symbol if instrument else " / ".join(symbols)),
                     symbols=symbols,
                     name=(
-                        instrument.name
+                        (
+                            first.position.name or instrument.name
+                            if instrument.name == instrument.canonical_symbol
+                            else instrument.name
+                        )
                         if instrument
                         else group_names.get(key) or first.position.name or first.position.ticker
                     ),
@@ -564,9 +561,9 @@ class PortfolioService:
         portfolio_performance = _combine_performance(
             [
                 source.performance
-                for source in all_sources
-                if source.performance.open_pnl_eur is not None
-                or source.performance.coverage != "unavailable"
+                for holding in holdings
+                if holding.asset_type is not AssetType.CASH
+                for source in holding.sources
             ]
             + closed_or_unattached_performance
         )
@@ -576,9 +573,7 @@ class PortfolioService:
             if item.transaction.transaction_type
             in {TransactionType.DEPOSIT, TransactionType.WITHDRAWAL}
         ]
-        valued_external_flows = [
-            item for item in external_flows if item.value_eur is not None
-        ]
+        valued_external_flows = [item for item in external_flows if item.value_eur is not None]
         net_contributions = (
             sum(
                 (
@@ -596,7 +591,9 @@ class PortfolioService:
         external_flow_coverage = (
             "complete"
             if external_flows and len(valued_external_flows) == len(external_flows)
-            else "partial" if valued_external_flows else "unavailable"
+            else "partial"
+            if valued_external_flows
+            else "unavailable"
         )
         portfolio_as_of = max(
             (source.valued_at for source in all_sources if source.valued_at is not None),

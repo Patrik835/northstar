@@ -6,24 +6,10 @@ import type {
   ConnectionGuide,
   StatementImportResult,
 } from "../../api/types";
-import { brokerLogo, brokerName, brokerShortMark } from "../../domain/brokers";
+import { brokerName } from "../../domain/brokers";
+import { SourceDialog, SourceMark } from "./SourceDialog";
 
 type SourceFilter = "all" | "connected" | "api" | "csv";
-
-function SourceMark({
-  broker,
-  shortMark,
-}: {
-  broker: Broker;
-  shortMark?: string;
-}) {
-  const logo = brokerLogo(broker);
-  return (
-    <span className={`compact-source-mark ${broker}`} aria-hidden="true">
-      {logo ? <img src={logo} alt="" /> : (shortMark ?? brokerShortMark(broker))}
-    </span>
-  );
-}
 
 function statusLabel(connection: Connection, isCsv: boolean) {
   if (connection.status === "pending") return "Waiting for data";
@@ -55,7 +41,11 @@ export function ConnectionsPage() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<SourceFilter>("all");
+  const [filter, setFilter] = useState<SourceFilter>(() => {
+    // Deep link from onboarding: /connections?type=api or ?type=csv.
+    const type = new URLSearchParams(window.location.search).get("type");
+    return type === "api" || type === "csv" ? type : "all";
+  });
 
   async function refresh() {
     setConnections(await api<Connection[]>("/connections"));
@@ -121,7 +111,7 @@ export function ConnectionsPage() {
       selected.credential_fields.map((field) => [field, String(data.get(field) ?? "").trim()]),
     );
     if (Object.values(credentials).some((value) => !value)) {
-      setModalMessage("Enter both the API key and API secret.");
+      setModalMessage("Fill in every field to continue.");
       return;
     }
     const busyKey = reconnecting?.id ?? selected.broker;
@@ -164,7 +154,7 @@ export function ConnectionsPage() {
     if (!selected) return;
     const fileImport = selected.file_import;
     if (!fileImport) {
-      setMessage("This import source is not configured correctly.");
+      setModalMessage("This import source is not configured correctly.");
       return;
     }
     const form = new FormData(event.currentTarget);
@@ -172,9 +162,10 @@ export function ConnectionsPage() {
       .getAll("file")
       .filter((file): file is File => file instanceof File && file.size > 0);
     if (!files.length) {
-      setMessage(fileImport.empty_file_message);
+      setModalMessage(fileImport.empty_file_message);
       return;
     }
+    setModalMessage("");
     setBusyId(selected.broker);
     try {
       const result = await api<StatementImportResult>(fileImport.endpoint, {
@@ -203,7 +194,8 @@ export function ConnectionsPage() {
       );
       await refresh();
     } catch (reason) {
-      setMessage(reason instanceof Error ? reason.message : "Could not import the selected file");
+      // Keep the dialog open so the error is visible next to the file the user chose.
+      setModalMessage(reason instanceof Error ? reason.message : "Could not import the selected file");
     } finally {
       setBusyId(null);
     }
@@ -279,14 +271,12 @@ export function ConnectionsPage() {
     return guides.find((guide) => guide.broker === broker);
   }
 
-  const selectedFileImport = selected?.file_import;
-
   return (
     <>
       <header className="page-header source-page-header">
         <div>
           <p className="eyebrow">Portfolio sources</p>
-          <h1>Connections</h1>
+          <h1>Sources</h1>
           <p className="page-intro">
             Connect live accounts or import statements. Northstar keeps each source separate
             and combines matching investments in Holdings.
@@ -519,127 +509,14 @@ export function ConnectionsPage() {
       </section>
 
       {selected && (
-        <div className="modal-backdrop" onMouseDown={closeModal}>
-          <form
-            key={reconnecting ? `replace:${reconnecting.id}` : `connect:${selected.broker}`}
-            className={`modal connection-modal${reconnecting ? " reconnect-modal" : ""}`}
-            onSubmit={selected.connection_type === "csv" ? submitCsv : submitApi}
-            onMouseDown={(event) => event.stopPropagation()}
-            noValidate={selected.connection_type === "api"}
-          >
-            <div className="modal-source-heading">
-              <SourceMark broker={selected.broker} shortMark={selected.short_mark} />
-              <div>
-                <p className="eyebrow">
-                  {selected.connection_type === "csv"
-                    ? "Secure import"
-                    : reconnecting
-                      ? "Replace credentials"
-                      : "Secure connection"}
-                </p>
-                <h2>{selected.display_name}</h2>
-              </div>
-            </div>
-            {reconnecting ? (
-              <p className="reconnect-note">
-                Your current key stays active until the replacement is verified.
-              </p>
-            ) : (
-              <div className="security-callout">{selected.security_notice}</div>
-            )}
-            {reconnecting && (
-              <section
-                className="setup-guide replacement-key-help"
-                aria-label="Replacement key instructions"
-              >
-                <h3>Need help creating a replacement key?</h3>
-                <ol>
-                  {selected.setup_steps.map((step) => (
-                    <li key={step}>{step}</li>
-                  ))}
-                </ol>
-                <a
-                  className="official-guide-link"
-                  href={selected.tutorial_url}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  View the official guide <span>↗</span>
-                </a>
-              </section>
-            )}
-            {!reconnecting && (
-              <section className="setup-guide">
-                <h3>
-                  {selected.connection_type === "csv" ? "Prepare your export" : "Get your keys"}
-                </h3>
-                <ol>
-                  {selected.setup_steps.map((step) => (
-                    <li key={step}>{step}</li>
-                  ))}
-                </ol>
-                <a
-                  className="official-guide-link"
-                  href={selected.tutorial_url}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  View the official guide <span>↗</span>
-                </a>
-              </section>
-            )}
-
-            {selected.connection_type === "csv" && selectedFileImport ? (
-              <label className="csv-dropzone">
-                <span className="upload-mark">↑</span>
-                <strong>{selectedFileImport.prompt}</strong>
-                <small>{selectedFileImport.help_text}</small>
-                <input
-                  name="file"
-                  type="file"
-                  accept={selectedFileImport.accept}
-                  multiple={selectedFileImport.multiple}
-                  required
-                />
-              </label>
-            ) : (
-              <div className="credential-fields">
-                <h3>{reconnecting ? "New credentials" : "Enter your credentials"}</h3>
-                {selected.credential_fields.map((field) => (
-                  <label key={field}>
-                    {selected.credential_labels[field] ?? field.replaceAll("_", " ")}
-                    <input name={field} type="password" autoComplete="new-password" required />
-                  </label>
-                ))}
-              </div>
-            )}
-
-            {modalMessage && <p className="connection-error modal-error" role="alert">{modalMessage}</p>}
-
-            <div className="button-row">
-              <button type="button" className="text-button" onClick={closeModal}>
-                Cancel
-              </button>
-              <button
-                type="submit"
-                className="primary"
-                disabled={busyId === (reconnecting?.id ?? selected.broker)}
-              >
-                {busyId === (reconnecting?.id ?? selected.broker)
-                  ? selected.connection_type === "csv"
-                    ? "Importing…"
-                    : reconnecting
-                      ? "Replacing…"
-                      : "Connecting…"
-                  : selected.connection_type === "csv"
-                    ? "Validate & import"
-                    : reconnecting
-                      ? "Validate & replace"
-                      : "Encrypt & connect"}
-              </button>
-            </div>
-          </form>
-        </div>
+        <SourceDialog
+          guide={selected}
+          reconnecting={reconnecting}
+          busy={busyId === (reconnecting?.id ?? selected.broker)}
+          error={modalMessage}
+          onClose={closeModal}
+          onSubmit={selected.connection_type === "csv" ? submitCsv : submitApi}
+        />
       )}
     </>
   );

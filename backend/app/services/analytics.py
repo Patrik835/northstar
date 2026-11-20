@@ -24,7 +24,7 @@ from app.schemas.analytics import (
 from app.schemas.performance import PerformanceRange, PortfolioHistoryPoint
 from app.schemas.portfolio import AllocationItem, HoldingsResponse
 from app.services.instrument_classification import classify_instrument
-from app.services.performance import PerformanceService
+from app.services.performance import PerformanceService, time_weighted_growth
 from app.services.portfolio import PortfolioService, percentage
 
 CENT = Decimal("0.01")
@@ -69,26 +69,7 @@ def _breakdown(
 def _growth_series(
     points: list[PortfolioHistoryPoint], external_flows: dict[date, Decimal]
 ) -> list[tuple[date, Decimal]]:
-    if not points:
-        return []
-    initial = points[0].total_value_eur
-    if initial <= 0:
-        return []
-    flow_dates = sorted(external_flows)
-    flow_index = 0
-    cumulative_flow = Decimal(0)
-    result: list[tuple[date, Decimal]] = []
-    for point in points:
-        while flow_index < len(flow_dates) and flow_dates[flow_index] <= point.date:
-            flow_date = flow_dates[flow_index]
-            if flow_date > points[0].date:
-                cumulative_flow += external_flows[flow_date]
-            flow_index += 1
-        contributed_capital = initial + cumulative_flow
-        if contributed_capital <= 0:
-            continue
-        result.append((point.date, point.total_value_eur * 100 / contributed_capital))
-    return result
+    return time_weighted_growth(points, external_flows)
 
 
 class AnalyticsService:

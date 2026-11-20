@@ -23,6 +23,7 @@ router = APIRouter()
 
 @router.get("", response_model=HoldingsResponse)
 async def holdings(user: CurrentUser, db: DbSession) -> HoldingsResponse:
+    await ManualPositionService(db, CredentialCipher()).refresh(user.id)
     return await PortfolioService(PortfolioRepository(db)).holdings(user.id)
 
 
@@ -31,9 +32,7 @@ async def manual_positions(user: CurrentUser, db: DbSession) -> list[ManualPosit
     return await ManualPositionService(db, CredentialCipher()).list(user.id)
 
 
-@router.post(
-    "/manual", response_model=ManualPositionRead, status_code=status.HTTP_201_CREATED
-)
+@router.post("/manual", response_model=ManualPositionRead, status_code=status.HTTP_201_CREATED)
 async def create_manual_position(
     payload: ManualPositionWrite, user: CurrentUser, db: DbSession
 ) -> ManualPositionRead:

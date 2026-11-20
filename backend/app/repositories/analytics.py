@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.enums import AssetType
 from app.models.instrument import Instrument
 from app.models.market_data import FxRate, HistoricalPrice
-from app.models.portfolio import HoldingMetadata, Position
+from app.models.portfolio import HoldingMetadata
 from app.models.user import UserProfile
 
 
@@ -86,25 +86,3 @@ class AnalyticsRepository:
                 self.db.add(row)
             row.target_allocation_percentage = target
         await self.db.commit()
-
-    async def benchmark_instrument(
-        self, instrument_id: uuid.UUID
-    ) -> Instrument | None:
-        return await self.db.scalar(
-            select(Instrument).where(
-                Instrument.id == instrument_id,
-                Instrument.asset_type == AssetType.ETF,
-            )
-        )
-
-    async def instrument_is_held_by_user(
-        self, user_id: uuid.UUID, instrument_id: uuid.UUID
-    ) -> bool:
-        return bool(
-            await self.db.scalar(
-                select(exists().where(
-                    Position.canonical_instrument_id == instrument_id,
-                    Position.connection.has(user_id=user_id),
-                ))
-            )
-        )
