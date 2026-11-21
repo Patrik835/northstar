@@ -15,7 +15,11 @@ from app.schemas.portfolio import (
     ManualPositionRead,
     ManualPositionWrite,
 )
-from app.services.manual_positions import ManualPositionError, ManualPositionService
+from app.services.manual_positions import (
+    QUOTE_MAX_AGE,
+    ManualPositionError,
+    ManualPositionService,
+)
 from app.services.portfolio import PortfolioService
 
 router = APIRouter()
@@ -23,7 +27,9 @@ router = APIRouter()
 
 @router.get("", response_model=HoldingsResponse)
 async def holdings(user: CurrentUser, db: DbSession) -> HoldingsResponse:
-    await ManualPositionService(db, CredentialCipher()).refresh(user.id)
+    await ManualPositionService(db, CredentialCipher()).refresh(
+        user.id, max_age=QUOTE_MAX_AGE
+    )
     return await PortfolioService(PortfolioRepository(db)).holdings(user.id)
 
 

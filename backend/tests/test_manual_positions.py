@@ -419,3 +419,69 @@ async def test_refresh_consolidates_existing_manual_entries_without_losing_cost(
             assert len(await service.list(user.id)) == 1
     finally:
         engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_page_load_refresh_reuses_recent_quotes_and_fetches_in_parallel() -> None:
+    import asyncio
+    from datetime import datetime, timedelta, timezone
+
+    class Prices:
+        calls: list[str] = []
+        in_flight = 0
+        max_in_flight = 0
+
+        async def price(self, ticker, asset_type):
+            self.calls.append(ticker)
+            self.in_flight += 1
+            self.max_in_flight = max(self.max_in_flight, self.in_flight)
+            await asyncio.sleep(0.01)
+            self.in_flight -= 1
+            return Decimal("150"), "USD", datetime.now(timezone.utc)
+
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    try:
+        with Session(engine, expire_on_commit=False) as session:
+            db = AsyncSessionAdapter(session)
+            user = User(username="quote-owner", password_hash="unused")
+            db.add(user)
+            await db.commit()
+            prices = Prices()
+            service = ManualPositionService(db, CredentialCipher(), FixedUsdRates(), prices)
+            for ticker in ("AAPL", "MSFT", "NVDA"):
+                await service.create(
+                    user.id,
+                    ManualPositionWrite(
+                        ticker=ticker,
+                        asset_type=AssetType.STOCK,
+                        quantity=Decimal("1"),
+                        average_price=Decimal("100"),
+                        currency="USD",
+                    ),
+                )
+
+            prices.calls.clear()
+            await service.refresh(user.id, max_age=timedelta(minutes=5))
+            # Adding holdings just quoted them, so an immediate page load reuses that.
+            assert prices.calls == []
+
+            connection = await db.scalar(select(BrokerConnection))
+            connection.last_sync_attempt_at = datetime.now(timezone.utc) - timedelta(hours=1)
+            await db.commit()
+            prices.max_in_flight = 0
+            await service.refresh(user.id, max_age=timedelta(minutes=5))
+            # Once quotes are old, the next page load quotes every listing, all at once.
+            assert sorted(prices.calls) == ["AAPL", "MSFT", "NVDA"]
+            assert prices.max_in_flight == 3
+
+            prices.calls.clear()
+            await service.refresh(user.id, max_age=timedelta(minutes=5))
+            # A reload within the freshness window doesn't call the price provider at all.
+            assert prices.calls == []
+
+            await service.refresh(user.id)
+            # Explicit refreshes (no window) always re-quote.
+            assert sorted(prices.calls) == ["AAPL", "MSFT", "NVDA"]
+    finally:
+        engine.dispose()

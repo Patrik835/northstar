@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Loading } from "../../components/Loading";
 import type { FormEvent } from "react";
-import { api } from "../../api/client";
+import { api, cachedApi } from "../../api/client";
 import type {
   AssetType,
   Broker,
@@ -18,7 +19,7 @@ import { eur, assetLabels, inGroup, sourceValue, sourceQuantity, timestamp, summ
 import { PnlLine, HoldingDetails } from "./HoldingDetails";
 
 export function HoldingsPage() {
-  const [portfolio, setPortfolio] = useState<HoldingsResponse | null>(null);
+  const [portfolio, setPortfolio] = useState(() => cachedApi<HoldingsResponse>("/holdings"));
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [assetGroup, setAssetGroup] = useState<AssetGroup>("all");
@@ -498,7 +499,7 @@ export function HoldingsPage() {
             {!portfolio.position_count && <Link to="/connections">Add a source</Link>}
           </EmptyState>
         ) : (
-          <div className="holdings-loading">Loading your consolidated portfolio…</div>
+          <Loading className="holdings-loading" label="Loading your investments…" />
         )}
       </section>
 

@@ -1,4 +1,5 @@
 import { useEffect, type ReactNode } from "react";
+import { Loading } from "../../components/Loading";
 import { useRouter } from "../../routing/Router";
 import { useAuth } from "./AuthContext";
 
@@ -8,6 +9,6 @@ export function ProtectedRoute({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!loading && !user) navigate("/login", true);
   }, [loading, navigate, user]);
-  if (loading) return <div className="centered">Loading your portfolio…</div>;
+  if (loading) return <div className="centered"><Loading label="Loading your portfolio…" /></div>;
   return user ? children : null;
 }

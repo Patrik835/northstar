@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { api } from "../../api/client";
+import { Loading } from "../../components/Loading";
+import { api, cachedApi } from "../../api/client";
 import type {
   AllocationBreakdown,
   AnalyticsPerformer,
@@ -175,7 +176,7 @@ function RiskCard({ label, value, display, level, meaning }: {
 
 export function AnalyticsPage() {
   const [selectedRange, setSelectedRange] = useState<PortfolioPerformance["range"]>("1y");
-  const [data, setData] = useState<AnalyticsResponse | null>(null);
+  const [data, setData] = useState(() => cachedApi<AnalyticsResponse>("/analytics?range=1y"));
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [refreshToken, setRefreshToken] = useState(0);
@@ -258,7 +259,7 @@ export function AnalyticsPage() {
         </div>
       </header>
       {error && <p className="error">{error}</p>}
-      {loading && !data && <section className="panel analytics-loading">Crunching the numbers…</section>}
+      {loading && !data && <section className="panel"><Loading className="analytics-loading" label="Crunching the numbers…" /></section>}
       {data && (
         <>
           <section className="panel analytics-allocation-panel">

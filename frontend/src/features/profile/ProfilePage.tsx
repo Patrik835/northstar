@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
+import { Loading } from "../../components/Loading";
 import { api, ApiError, downloadApi } from "../../api/client";
 import { useRouter } from "../../routing/Router";
 
@@ -95,7 +96,7 @@ export function ProfilePage() {
     }
   }
 
-  if (!profile && !error) return <p role="status">Loading profile…</p>;
+  if (!profile && !error) return <Loading className="page-loading" label="Loading your settings…" />;
   if (!profile) return <p className="error" role="alert">{error}</p>;
 
   const horizon = profile.time_horizon_years ?? 10;

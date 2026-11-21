@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
+import { Loading } from "../../components/Loading";
 import { api } from "../../api/client";
 import { useFeatures } from "../../api/features";
 import type { ContentSummary, NotificationPreference } from "../../api/types";
@@ -150,12 +151,13 @@ export function UpdatesPage() {
       </section>
     )}
 
-    {newsOff && !content?.alerts.some((item) => !item.read_at) && (
+    {!content && !error && <Loading className="page-loading" label="Loading updates…" />}
+    {content && newsOff && !content.alerts.some((item) => !item.read_at) && (
       <EmptyState title="You're all caught up">Portfolio alerts, such as a drift from your allocation targets, will appear here.</EmptyState>
     )}
     {newsOff && <p className="muted feature-off-note">Company news and the earnings calendar are not set up on this server (an administrator can add a free Finnhub key).</p>}
 
-    {!newsOff && <section className="updates-grid">
+    {content && !newsOff && <section className="updates-grid">
       <article className="panel updates-panel">
         <div className="panel-heading news-panel-heading">
           <div><p className="eyebrow">Your portfolio</p><h2>Market updates</h2></div>

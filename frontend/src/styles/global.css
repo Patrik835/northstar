@@ -850,3 +850,14 @@ details.analytics-target-panel:not([open]) > summary { margin-bottom: 0; }
   .holdings-metrics .holding-metric strong { font-size: 1.25rem; }
   .holdings-metrics .holding-metric .pnl-summary { font-size: .75rem; }
 }
+
+/* Loading states: a page waiting on data should look busy, not broken. */
+.loading-state { display: flex; align-items: center; justify-content: center; gap: .65rem; color: var(--muted); }
+.page-loading { min-height: 240px; }
+.loading-spinner { flex: none; width: 18px; height: 18px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: review-spin .75s linear infinite; }
+.skeleton { display: inline-block; max-width: 100%; height: .9em; border-radius: 6px; vertical-align: middle; background: linear-gradient(90deg, var(--line) 25%, #2c463a 50%, var(--line) 75%); background-size: 200% 100%; animation: skeleton-shimmer 1.3s ease-in-out infinite; }
+.metric strong .skeleton { height: 1.6rem; }
+@keyframes skeleton-shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+.portfolio-history-panel > :not(.portfolio-history-heading) { transition: opacity .2s; }
+.portfolio-history-panel.is-updating > :not(.portfolio-history-heading) { opacity: .45; }
+

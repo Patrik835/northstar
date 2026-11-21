@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { api } from "../../api/client";
+import { api, cachedApi } from "../../api/client";
 import { loadFeatures } from "../../api/features";
 import type {
   AllocationItem,
@@ -12,6 +12,7 @@ import type {
   PortfolioPerformance,
 } from "../../api/types";
 import { EmptyState } from "../../components/EmptyState";
+import { Loading } from "../../components/Loading";
 import { CsvDownloadButton } from "../../components/CsvDownloadButton";
 import { brokerNameFromValue } from "../../domain/brokers";
 import { formatEur } from "../../lib/format";
@@ -234,14 +235,15 @@ function AssetAllocation({ items }: { items: AllocationItem[] }) {
 }
 
 export function DashboardPage() {
-  const [summary, setSummary] = useState<DashboardSummary | null>(null);
+  const [summary, setSummary] = useState(() => cachedApi<DashboardSummary>("/dashboard/summary"));
   const [error, setError] = useState("");
   const [selectedRange, setSelectedRange] = useState<PortfolioPerformance["range"]>("1y");
-  const [holdings, setHoldings] = useState<HoldingsResponse | null>(null);
-  const [performance, setPerformance] = useState<PortfolioPerformance | null>(null);
+  const [holdings, setHoldings] = useState(() => cachedApi<HoldingsResponse>("/holdings"));
+  const [performance, setPerformance] = useState(() => cachedApi<PortfolioPerformance>("/performance?range=1y"));
   const [performanceError, setPerformanceError] = useState("");
   const [performanceLoading, setPerformanceLoading] = useState(true);
-  const [content, setContent] = useState<ContentSummary | null>(null);
+  const [content, setContent] = useState(() =>
+    cachedApi<ContentSummary>("/content?news_limit=3&event_limit=3&alert_limit=3"));
   const [features, setFeatures] = useState<FeatureStatus | null>(null);
   const [review, setReview] = useState<PortfolioReview | null>(null);
   useEffect(() => {
@@ -257,8 +259,8 @@ export function DashboardPage() {
   }, []);
   useEffect(() => {
     const controller = new AbortController();
+    // Keep the current chart on screen (dimmed) while the new period loads.
     setPerformanceLoading(true);
-    setPerformance(null);
     setPerformanceError("");
     api<PortfolioPerformance>(`/performance?range=${selectedRange}`, { signal: controller.signal })
       .then((result) => {
@@ -306,17 +308,24 @@ export function DashboardPage() {
       <OverviewMetrics
         totalValue={summary ? Number(summary.total_value_eur) : null}
         holdings={holdings}
-        performance={performance}
+        performance={performance?.range === selectedRange ? performance : null}
+        performanceFailed={Boolean(performanceError)}
         range={selectedRange}
       />
 
-      <section className="panel portfolio-history-panel">
+      <section
+        className={`panel portfolio-history-panel${performanceLoading && performance ? " is-updating" : ""}`}
+        aria-busy={performanceLoading}
+      >
         <div className="portfolio-history-heading">
           <div>
             <p className="eyebrow">Portfolio history</p>
             <h2>Value and invested amount</h2>
           </div>
           <div className="portfolio-history-actions">
+            {performanceLoading && performance && (
+              <span className="loading-spinner" role="status" aria-label="Updating" />
+            )}
             <CsvDownloadButton
               path={`/exports/performance.csv?range=${selectedRange}`}
               disabled={!performance}
@@ -337,14 +346,14 @@ export function DashboardPage() {
           </div>
         </div>
         {performanceError && <p className="history-message error">{performanceError}</p>}
-        {performanceLoading && !performance && <div className="history-loading">Loading history…</div>}
+        {performanceLoading && !performance && <Loading className="history-loading" label="Loading history…" />}
         {!performanceLoading && performance && performance.points.length === 0 && (
           <EmptyState title="History starts with your first sync">Once daily values are available, they will appear here.</EmptyState>
         )}
         {performance && performance.points.length > 0 && (
           <>
             <PortfolioValueFigure
-              key={selectedRange}
+              key={performance.range}
               points={performance.points}
               windowStart={performance.start_date ?? performance.points[0].date}
               windowEnd={performance.end_date ?? performance.points.at(-1)?.date ?? performance.points[0].date}

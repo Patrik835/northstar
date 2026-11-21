@@ -37,7 +37,17 @@ function errorMessage(body: unknown): string {
   return messages.join(". ") || "The submitted information is invalid";
 }
 
+// Last successful GET response per path. Pages read it to show the previous numbers instantly
+// while fresh data loads. Any write (or logout) clears it, so it never outlives a change.
+const responseCache = new Map<string, unknown>();
+
+export function cachedApi<T>(path: string): T | null {
+  return (responseCache.get(path) as T | undefined) ?? null;
+}
+
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
+  const method = (init?.method ?? "GET").toUpperCase();
+  if (method !== "GET") responseCache.clear();
   const isFormData = init?.body instanceof FormData;
   const response = await fetch(`${API_ROOT}${path}`, {
     ...init,
@@ -53,7 +63,9 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
     throw new ApiError(response.status, errorMessage(body));
   }
   if (response.status === 204) return undefined as T;
-  return response.json() as Promise<T>;
+  const data = (await response.json()) as T;
+  if (method === "GET") responseCache.set(path, data);
+  return data;
 }
 
 export async function streamApi(

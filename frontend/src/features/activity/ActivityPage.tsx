@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Loading } from "../../components/Loading";
 import { api } from "../../api/client";
 import type {
   ActivityResponse,
@@ -348,7 +349,7 @@ export function ActivityPage() {
             ) : "Try clearing a filter or search term."}
           </EmptyState>
         ) : (
-          <div className="holdings-loading">Loading your activity…</div>
+          <Loading className="holdings-loading" label="Loading your activity…" />
         )}
       </section>
     </>

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { api } from "../../api/client";
+import { Loading } from "../../components/Loading";
+import { api, cachedApi } from "../../api/client";
 import type {
   Broker,
   Connection,
@@ -27,8 +28,8 @@ function statusTone(connection: Connection) {
 }
 
 export function ConnectionsPage() {
-  const [connections, setConnections] = useState<Connection[]>([]);
-  const [guides, setGuides] = useState<ConnectionGuide[]>([]);
+  const [connections, setConnections] = useState(() => cachedApi<Connection[]>("/connections") ?? []);
+  const [guides, setGuides] = useState(() => cachedApi<ConnectionGuide[]>("/connections/guides") ?? []);
   const [selected, setSelected] = useState<ConnectionGuide | null>(null);
   const [reconnecting, setReconnecting] = useState<Connection | null>(null);
   const [message, setMessage] = useState("");
@@ -47,7 +48,9 @@ export function ConnectionsPage() {
 
   useEffect(() => {
     void refresh();
-    api<ConnectionGuide[]>("/connections/guides").then(setGuides);
+    api<ConnectionGuide[]>("/connections/guides")
+      .then(setGuides)
+      .catch((reason: Error) => setMessage(reason.message));
   }, []);
 
   const automaticConnectionCount = useMemo(
@@ -406,6 +409,8 @@ export function ConnectionsPage() {
           </div>
         </section>
       )}
+
+      {guides.length === 0 && !message && <Loading className="page-loading" label="Loading sources…" />}
 
       {(firstGroup === "api" ? (["api", "csv"] as const) : (["csv", "api"] as const)).map((group) => {
         const groupGuides = guides.filter((guide) => guide.connection_type === group);

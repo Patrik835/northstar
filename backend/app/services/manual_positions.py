@@ -1,5 +1,6 @@
+import asyncio
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from types import SimpleNamespace
 
@@ -17,6 +18,9 @@ from app.models.portfolio import PortfolioSnapshot, Position
 from app.models.user import User
 from app.schemas.portfolio import ManualPositionRead, ManualPositionWrite
 from app.services.instrument_resolver import InstrumentResolver
+
+# Page loads reuse market quotes this recent instead of waiting on the price providers.
+QUOTE_MAX_AGE = timedelta(minutes=5)
 
 
 class ManualPositionError(ValueError):
@@ -229,9 +233,28 @@ class ManualPositionService:
             await self._mark_to_market(position)
         return position, instrument
 
-    async def _mark_to_market(self, position: Position) -> bool:
+    async def _fetch_prices(self, listings: set[tuple]) -> dict[tuple, tuple | None]:
+        async def fetch(listing: tuple) -> tuple | None:
+            try:
+                return await self.prices.price(*listing)
+            except CurrentPriceError:
+                return None
+
+        ordered = list(listings)
+        results = await asyncio.gather(*(fetch(listing) for listing in ordered))
+        return dict(zip(ordered, results, strict=True))
+
+    async def _mark_to_market(
+        self, position: Position, prices: dict[tuple, tuple | None] | None = None
+    ) -> bool:
         try:
-            price, currency, as_of = await self.prices.price(position.ticker, position.asset_type)
+            if prices is None:
+                quote = await self.prices.price(position.ticker, position.asset_type)
+            else:
+                quote = prices.get((position.ticker, position.asset_type))
+                if quote is None:
+                    return False
+            price, currency, as_of = quote
             price_eur = await self.fx_rates.convert_to_eur(price, currency)
             unit_eur = await self.fx_rates.convert_to_eur(Decimal(1), position.currency)
             if not price_eur.is_finite() or price_eur <= 0 or unit_eur <= 0:
@@ -324,7 +347,12 @@ class ManualPositionService:
         await self.db.flush()
         return survivor
 
-    async def refresh(self, user_id: uuid.UUID) -> None:
+    async def refresh(self, user_id: uuid.UUID, *, max_age: timedelta | None = None) -> None:
+        """Re-quote manual holdings at the current market price.
+
+        With ``max_age``, quotes attempted more recently than that are reused, so page loads
+        don't wait on the price providers every time.
+        """
         connections = list(
             await self.db.scalars(
                 select(BrokerConnection).where(
@@ -335,6 +363,14 @@ class ManualPositionService:
         )
         if not connections:
             return
+        if max_age is not None:
+            cutoff = datetime.now(timezone.utc) - max_age
+            if all(
+                connection.last_sync_attempt_at is not None
+                and _aware(connection.last_sync_attempt_at) >= cutoff
+                for connection in connections
+            ):
+                return
         inputs = ("ticker", "asset_type", "quantity", "average_price", "currency")
         outputs = (
             "current_value",
@@ -345,16 +381,23 @@ class ManualPositionService:
             "valuation_source",
             "is_estimated",
         )
-        quotes = {}
+        snapshot = []
         for connection in connections:
             positions = await self.db.scalars(
                 select(Position).where(Position.broker_connection_id == connection.id)
             )
             for position in positions:
                 original = tuple(getattr(position, field) for field in inputs)
-                quoted = SimpleNamespace(**{field: getattr(position, field) for field in inputs})
-                success = await self._mark_to_market(quoted)
-                quotes[position.id] = (original, quoted, success)
+                snapshot.append((position.id, original))
+        # Ask the price providers for every distinct listing at once, not one after another.
+        prices = await self._fetch_prices(
+            {(original[0], original[1]) for _, original in snapshot}
+        )
+        quotes = {}
+        for position_id, original in snapshot:
+            quoted = SimpleNamespace(**dict(zip(inputs, original, strict=True)))
+            success = await self._mark_to_market(quoted, prices)
+            quotes[position_id] = (original, quoted, success)
         # Fetch quotes before locking. Re-read and apply only to unchanged inputs.
         await self._lock_user(user_id)
         for connection in connections:
@@ -472,3 +515,7 @@ class ManualPositionService:
             open_pnl_eur=position.reported_pnl_eur,
             valued_at=position.valued_at,
         )
+
+
+def _aware(value: datetime) -> datetime:
+    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value

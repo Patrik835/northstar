@@ -1,5 +1,6 @@
 import type { Holding, HoldingsResponse, PortfolioPerformance } from "../../api/types";
 import { formatChange, formatEur, formatPercentChange, tone } from "../../lib/format";
+import { Skeleton } from "../../components/Loading";
 import { Link } from "../../routing/Router";
 import { summarizePnl, type PnlSummary } from "../holdings/holdingMath";
 
@@ -27,11 +28,13 @@ export function OverviewMetrics({
   totalValue,
   holdings,
   performance,
+  performanceFailed = false,
   range,
 }: {
   totalValue: number | null;
   holdings: HoldingsResponse | null;
   performance: PortfolioPerformance | null;
+  performanceFailed?: boolean;
   range: PortfolioPerformance["range"];
 }) {
   const pnl = holdings ? summarizePnl(holdings.holdings.flatMap((holding) => holding.sources)) : null;
@@ -50,15 +53,16 @@ export function OverviewMetrics({
     <section className="metric-grid">
       <article className="metric primary-metric">
         <span>Total value</span>
-        <strong>{totalValue === null ? "—" : formatEur(totalValue)}</strong>
+        <strong>{totalValue === null ? <Skeleton width="9rem" /> : formatEur(totalValue)}</strong>
         <small><Link to="/holdings">See all investments</Link></small>
       </article>
       <article className="metric">
         <span>Gain / loss</span>
-        {pnl ? <ChangeValue value={pnl.value} percentage={pnl.percentage} /> : <strong>—</strong>}
+        {pnl ? <ChangeValue value={pnl.value} percentage={pnl.percentage} />
+          : <strong>{holdings ? "—" : <Skeleton />}</strong>}
         <small>
           {!holdings
-            ? "Loading…"
+            ? <Skeleton width="10rem" />
             : !pnl
               ? "Add what you paid to see your gain"
               : partial
@@ -73,10 +77,12 @@ export function OverviewMetrics({
             value={Number(periodReturn)}
             percentage={periodPercent != null ? Number(periodPercent) : null}
           />
-        ) : <strong>—</strong>}
+        ) : <strong>{performance || performanceFailed ? "—" : <Skeleton />}</strong>}
         <small>
-          {!performance
-            ? "Loading…"
+          {performanceFailed && !performance
+            ? "Couldn't load this period. Try another one."
+            : !performance
+            ? <Skeleton width="10rem" />
             : !hasPeriod
               ? "Not enough history for this period yet"
               : `On ${formatEur(startValue)} at the start${added > 0 ? ` + ${formatEur(added)} added` : ""} · deposits don't count as gain${missingHistory ? " · estimate, some history is missing" : ""}`}
