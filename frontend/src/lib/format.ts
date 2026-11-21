@@ -7,9 +7,9 @@ const eurWhole = new Intl.NumberFormat("en-IE", {
   style: "currency", currency: "EUR", maximumFractionDigits: 0,
 });
 
-/** € amount; values of €1,000 or more drop the cents so big numbers stay readable. */
+/** € amount; €100 or more drops the cents so amounts side by side look alike. */
 export function formatEur(value: number): string {
-  return (Math.abs(value) >= 1000 ? eurWhole : eurCents).format(value);
+  return (Math.abs(value) >= 100 ? eurWhole : eurCents).format(value);
 }
 
 /** Gain/loss in €, always with a sign: +€120.50 / −€80.00. */

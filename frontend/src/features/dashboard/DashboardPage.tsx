@@ -73,9 +73,23 @@ function PortfolioValueFigure({
   windowEnd: string;
 }) {
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
-  const width = 900;
-  const height = 260;
-  const margin = { top: 18, right: 18, bottom: 36, left: 72 };
+  // Draw at the real container width so axis labels stay readable on phones.
+  const [figure, setFigure] = useState<HTMLDivElement | null>(null);
+  const [measuredWidth, setMeasuredWidth] = useState(900);
+  useEffect(() => {
+    if (!figure) return;
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry.contentRect.width > 0) setMeasuredWidth(Math.round(entry.contentRect.width));
+    });
+    observer.observe(figure);
+    return () => observer.disconnect();
+  }, [figure]);
+  const compact = measuredWidth < 560;
+  const width = Math.max(measuredWidth, 280);
+  const height = compact ? 220 : 260;
+  const margin = compact
+    ? { top: 14, right: 10, bottom: 30, left: 48 }
+    : { top: 18, right: 18, bottom: 36, left: 72 };
   const plotWidth = width - margin.left - margin.right;
   const plotHeight = height - margin.top - margin.bottom;
   const values = points.flatMap((point) => [
@@ -107,15 +121,16 @@ function PortfolioValueFigure({
     const ratio = index / 3;
     return { value: yMaximum - ySpread * ratio, y: margin.top + plotHeight * ratio };
   });
-  const xTicks = Array.from({ length: 5 }, (_, index) => {
-    const timestamp = windowStartTime + (windowDuration * index) / 4;
+  const xTickCount = compact ? 3 : 5;
+  const xTicks = Array.from({ length: xTickCount }, (_, index) => {
+    const timestamp = windowStartTime + (windowDuration * index) / (xTickCount - 1);
     return new Date(timestamp).toISOString().slice(0, 10);
   });
   const activeIndex = hoveredIndex ?? points.length - 1;
   const activePoint = points[activeIndex];
 
   return (
-    <div className="portfolio-history-figure">
+    <div className="portfolio-history-figure" ref={setFigure}>
       <div className="history-chart-readout" aria-live="polite">
         <span className="history-readout-date">{formatHistoryDate(activePoint.date)}</span>
         <span className="history-readout-value total-value">
@@ -143,9 +158,9 @@ function PortfolioValueFigure({
           <text
             className="history-axis-label"
             key={`${tick}-${index}`}
-            x={margin.left + (plotWidth * index) / 4}
+            x={margin.left + (plotWidth * index) / (xTickCount - 1)}
             y={height - 8}
-            textAnchor={index === 0 ? "start" : index === 4 ? "end" : "middle"}
+            textAnchor={index === 0 ? "start" : index === xTickCount - 1 ? "end" : "middle"}
           >
             {formatHistoryDate(tick)}
           </text>

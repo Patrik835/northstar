@@ -50,13 +50,13 @@ test("platform filter scopes all performance figures", async ({ page }) => {
     await page.goto("/holdings");
     await page.locator(".holding-row").click();
     const strip = page.locator(".holding-performance-strip");
-    await expect(strip).toContainText("+€167.00");
+    await expect(strip).toContainText("+€167");
     await page.getByLabel("Broker").selectOption(broker);
     await expect(strip).toContainText("+€62.00");
     await expect(strip).toContainText("+€10.00");
     await expect(strip).toContainText("€3.00");
     await expect(strip).toContainText("−€1.00");
-    await expect(strip).not.toContainText("+€167.00");
-    await expect(page.locator(".cost-basis-inline")).toContainText("€100.00");
+    await expect(strip).not.toContainText("+€167");
+    await expect(page.locator(".cost-basis-inline")).toContainText("€100");
     await expect(page.locator(".source-detail")).toHaveCount(1);
   });

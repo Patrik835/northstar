@@ -40,7 +40,7 @@ h2 { font-size: 1.2rem; letter-spacing: -.02em; }
 .metric, .panel { border: 1px solid var(--line); background: #101d18; border-radius: 14px; }
 .metric { padding: 1.25rem 1.4rem; display: grid; gap: .35rem; }
 .metric span, .metric small { color: var(--muted); }
-.metric strong { font-family: "Manrope"; font-size: 1.85rem; }
+.metric strong { font-family: "Manrope"; font-size: 1.85rem; white-space: nowrap; }
 .primary-metric strong { font-size: 2.25rem; }
 .dashboard-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
 .panel { padding: 1.5rem; }
@@ -382,7 +382,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent); box-sha
 .portfolio-history-heading h2, .portfolio-history-heading .eyebrow { margin-bottom: 0; }
 .portfolio-history-actions { display: flex; align-items: center; gap: .6rem; }
 .history-range-picker { display: flex; align-items: center; gap: .18rem; padding: .2rem; border: 1px solid var(--line); border-radius: 9px; background: #0c1813; }
-.history-range-picker button { min-width: 40px; padding: .42rem .55rem; border: 0; border-radius: 6px; color: var(--muted); background: transparent; font-size: .7rem; font-weight: 600; }
+.history-range-picker button { flex: none; white-space: nowrap; min-width: 40px; padding: .42rem .55rem; border: 0; border-radius: 6px; color: var(--muted); background: transparent; font-size: .7rem; font-weight: 600; }
 .history-range-picker button:hover { color: var(--ink); background: #17271f; }
 .history-range-picker button.active { color: #092016; background: var(--accent); }
 .portfolio-history-figure { margin-top: .65rem; }
@@ -394,9 +394,9 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent); box-sha
 .history-readout-value strong { font: 600 .82rem "Manrope"; }
 .history-readout-value.total-value i { background: var(--accent); }
 .history-readout-value.invested-amount i { background: #70a8f7; }
-.portfolio-history-figure svg { display: block; width: 100%; min-height: 220px; overflow: visible; touch-action: pan-y; }
+.portfolio-history-figure svg { display: block; width: 100%; height: auto; overflow: visible; touch-action: pan-y; }
 .history-grid-line { stroke: #20332a; stroke-width: 1; vector-effect: non-scaling-stroke; }
-.history-axis-label { fill: #6f8479; font: 10px "DM Sans"; }
+.history-axis-label { fill: #6f8479; font: 11px "DM Sans"; }
 .history-y-label { text-anchor: end; font-variant-numeric: tabular-nums; }
 .history-value-line { fill: none; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 .history-value-line.total-value { stroke: var(--accent); }
@@ -601,12 +601,11 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent); box-sha
   .activity-row > span:nth-child(2) { grid-column: 1; }
   .activity-row > span:nth-child(3) { grid-column: 2; grid-row: 1 / span 2; }
   .activity-row > span:last-child { grid-column: 2; }
-  .history-range-picker { width: 100%; }
-  .history-range-picker button { flex: 1 0 38px; }
+  .history-range-picker { width: 100%; display: grid; grid-template-columns: repeat(4, 1fr); }
+  .history-range-picker button { flex: 1 0 auto; }
   .history-chart-readout { grid-template-columns: 1fr 1fr; gap: .55rem 1rem; }
   .history-readout-date { grid-column: 1 / -1; }
-  .portfolio-history-figure svg { min-height: 180px; }
-  .history-axis-label { font-size: 9px; }
+
   .history-chart-meta { align-items: flex-start; flex-direction: column; gap: .25rem; }
   .analytics-risk-grid { grid-template-columns: 1fr; }
   .leader-columns { grid-template-columns: 1fr; }
@@ -863,7 +862,8 @@ details.analytics-target-panel:not([open]) > summary { margin-bottom: 0; }
 
 
 /* "Not sure which broker?" statement picker on Sources. */
-.statement-detector { display: grid; gap: .8rem; margin: 0 0 1.2rem; }
+.statement-detector { display: grid; gap: .8rem; margin: 0 1.4rem 1.2rem; }
+@media (max-width: 760px) { .statement-detector { margin-inline: 1rem; } }
 .statement-detector-drop { min-height: 120px; }
 .statement-detector-drop strong { overflow-wrap: anywhere; }
 .statement-detector-result { padding: 1rem 1.2rem; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
@@ -871,3 +871,4 @@ details.analytics-target-panel:not([open]) > summary { margin-bottom: 0; }
 .statement-detector-result .button-row { justify-content: flex-start; margin-top: .8rem; flex-wrap: wrap; }
 .statement-detector-alternatives { margin-top: .7rem !important; font-size: .85rem; }
 .statement-detector-choices { gap: .7rem; }
+@media (max-width: 760px) { .allocation-visual-panel { min-height: 0; } }
