@@ -5,11 +5,10 @@ import type {
   InvestmentPerformanceBreakdown,
 } from "../../api/types";
 
-export const eur = new Intl.NumberFormat("en-IE", {
-  style: "currency",
-  currency: "EUR",
-  maximumFractionDigits: 2,
-});
+import { formatEur } from "../../lib/format";
+
+// Same € format as the rest of the app (no cents from €1,000 up).
+export const eur = { format: formatEur };
 export const quantity = new Intl.NumberFormat("en-IE", { maximumFractionDigits: 8 });
 export const assetLabels: Record<AssetType, string> = {
   stock: "Stock",
@@ -147,10 +146,4 @@ export function combinePerformance(sources: HoldingSource[]): InvestmentPerforma
   };
 }
 
-export function signedMoney(value: number) {
-  return `${value > 0 ? "+" : ""}${eur.format(value)}`;
-}
-
-export function signedPercentage(value: number) {
-  return `${value > 0 ? "+" : ""}${value.toFixed(2)}%`;
-}
+export { formatChange as signedMoney, formatPercentChange as signedPercentage } from "../../lib/format";

@@ -3,23 +3,14 @@ import { api } from "../../api/client";
 import type {
   ActivityResponse,
   Broker,
-  TransactionType,
 } from "../../api/types";
 import { EmptyState } from "../../components/EmptyState";
 import { CsvDownloadButton } from "../../components/CsvDownloadButton";
+import { activityLabels } from "../../domain/activity";
 import { brokerName, brokers } from "../../domain/brokers";
-const activityLabels: Record<TransactionType, string> = {
-  buy: "Buy",
-  sell: "Sell",
-  dividend: "Dividend",
-  deposit: "Deposit",
-  withdrawal: "Withdrawal",
-  fee: "Fee",
-  other: "Other",
-};
 type ActivityGroup = "trade" | "dividend";
 const activityGroups: Array<[ActivityGroup, string]> = [
-  ["trade", "Buy / Sell"],
+  ["trade", "Bought / Sold"],
   ["dividend", "Dividend"],
 ];
 const eur = new Intl.NumberFormat("en-IE", { style: "currency", currency: "EUR" });
@@ -44,15 +35,39 @@ function activityTotal(total: ActivityResponse["summary"]["bought"]) {
   return amounts.join(" + ");
 }
 
+type Period = "3m" | "ytd" | "all" | "custom";
+const periodOptions: Array<[Period, string]> = [
+  ["3m", "Last 3 months"],
+  ["ytd", "This year"],
+  ["all", "All time"],
+  ["custom", "Custom"],
+];
+
+function isoDate(value: Date) {
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
+}
+
+function periodStart(period: Period): string {
+  const now = new Date();
+  if (period === "3m") return isoDate(new Date(now.getFullYear(), now.getMonth() - 3, now.getDate()));
+  if (period === "ytd") return `${now.getFullYear()}-01-01`;
+  return "";
+}
+
 export function ActivityPage() {
   const [result, setResult] = useState<ActivityResponse | null>(null);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [broker, setBroker] = useState<Broker | "">("");
   const [type, setType] = useState<ActivityGroup | "">("");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  const [period, setPeriod] = useState<Period>("3m");
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
+  const [showFilters, setShowFilters] = useState(false);
   const [offset, setOffset] = useState(0);
+  const dateFrom = period === "custom" ? customFrom : periodStart(period);
+  const dateTo = period === "custom" ? customTo : "";
+  const activeFilterCount = (broker ? 1 : 0) + (type ? 1 : 0);
 
   const query = useMemo(() => {
     const params = new URLSearchParams({
@@ -114,90 +129,135 @@ export function ActivityPage() {
     <>
       <header className="page-header activity-header">
         <div>
-          <p className="eyebrow">Portfolio ledger</p>
+          <p className="eyebrow">History</p>
           <h1>Activity</h1>
           <p className="page-intro">
-            Buys, sells, and dividends from every connected source.
+            Everything you bought, sold or earned, from all your sources.
           </p>
         </div>
         <div className="page-header-actions activity-export-actions">
           <div className="csv-export-group">
             <CsvDownloadButton
               path={exportPaths.transactions}
-              label="Transactions CSV"
+              label="Download trades"
               disabled={!result}
             />
             <CsvDownloadButton
               path={exportPaths.income}
-              label="Income CSV"
+              label="Download dividends"
               disabled={!result}
             />
           </div>
           <span className="as-of">
-            {result ? `${result.total} matching events` : "Loading…"}
+            {result ? `${result.total} ${result.total === 1 ? "entry" : "entries"}` : "Loading…"}
           </span>
         </div>
       </header>
       {error && <p className="error">{error}</p>}
       <section className="panel activity-panel">
-        <div className="activity-filters">
-          <label className="activity-search">
-            <span>Search</span>
-            <input
-              value={search}
-              onChange={(event) => resetAnd(() => setSearch(event.target.value))}
-              placeholder="Instrument or ticker…"
-            />
-          </label>
-          <label>
-            <span>Source</span>
-            <select
-              value={broker}
-              onChange={(event) =>
-                resetAnd(() => setBroker(event.target.value as Broker | ""))
-              }
+        <div className="activity-toolbar">
+          <div className="activity-periods" role="group" aria-label="Period">
+            {periodOptions.map(([value, label]) => (
+              <button
+                type="button"
+                key={value}
+                className={period === value ? "active" : ""}
+                aria-pressed={period === value}
+                onClick={() => resetAnd(() => setPeriod(value))}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className="activity-toolbar-right">
+            <label className="activity-search">
+              <span className="visually-hidden">Search</span>
+              <input
+                value={search}
+                onChange={(event) => resetAnd(() => setSearch(event.target.value))}
+                placeholder="Search by name or ticker…"
+                aria-label="Search activity"
+              />
+            </label>
+            <button
+              type="button"
+              className="secondary"
+              aria-expanded={showFilters}
+              onClick={() => setShowFilters((current) => !current)}
             >
-              <option value="">All sources</option>
-              {brokers.map((value) => (
-                <option value={value} key={value}>{brokerName(value)}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <span>Type</span>
-            <select
-              value={type}
-              onChange={(event) =>
-                resetAnd(() => setType(event.target.value as ActivityGroup | ""))
-              }
-            >
-              <option value="">All activity</option>
-              {activityGroups.map(([value, label]) => (
-                <option value={value} key={value}>{label}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <span>From</span>
-            <input
-              type="date"
-              value={dateFrom}
-              onChange={(event) => resetAnd(() => setDateFrom(event.target.value))}
-            />
-          </label>
-          <label>
-            <span>To</span>
-            <input
-              type="date"
-              value={dateTo}
-              onChange={(event) => resetAnd(() => setDateTo(event.target.value))}
-            />
-          </label>
+              Filter{activeFilterCount ? ` (${activeFilterCount})` : ""}
+            </button>
+          </div>
         </div>
+        {(showFilters || period === "custom") && (
+          <div className="activity-filters">
+            {showFilters && (
+              <>
+                <label>
+                  <span>Source</span>
+                  <select
+                    value={broker}
+                    onChange={(event) =>
+                      resetAnd(() => setBroker(event.target.value as Broker | ""))
+                    }
+                  >
+                    <option value="">All sources</option>
+                    {brokers.map((value) => (
+                      <option value={value} key={value}>{brokerName(value)}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  <span>Type</span>
+                  <select
+                    value={type}
+                    onChange={(event) =>
+                      resetAnd(() => setType(event.target.value as ActivityGroup | ""))
+                    }
+                  >
+                    <option value="">Everything</option>
+                    {activityGroups.map(([value, label]) => (
+                      <option value={value} key={value}>{label}</option>
+                    ))}
+                  </select>
+                </label>
+              </>
+            )}
+            {period === "custom" && (
+              <>
+                <label>
+                  <span>From</span>
+                  <input
+                    type="date"
+                    value={customFrom}
+                    onChange={(event) => resetAnd(() => setCustomFrom(event.target.value))}
+                  />
+                </label>
+                <label>
+                  <span>To</span>
+                  <input
+                    type="date"
+                    value={customTo}
+                    onChange={(event) => resetAnd(() => setCustomTo(event.target.value))}
+                  />
+                </label>
+              </>
+            )}
+            {activeFilterCount > 0 && (
+              <button
+                type="button"
+                className="text-button"
+                onClick={() => resetAnd(() => { setBroker(""); setType(""); })}
+              >
+                Clear filters
+              </button>
+            )}
+          </div>
+        )}
         {result && (
           <div className="activity-period-summary">
             <div className="period-summary-heading">
-              <span>{dateFrom || dateTo ? "Selected period" : "Activity totals"}</span>
+              <span>Totals</span>
               <small>{periodLabel}</small>
             </div>
             {(
@@ -214,12 +274,12 @@ export function ActivityPage() {
                   {total.event_count} event{total.event_count === 1 ? "" : "s"}
                   {total.missing_eur_count > 0 && (
                     <em title={`${total.missing_eur_count} event(s) are shown in their original currency because no historical EUR conversion is stored`}>
-                      original currency
+                      some in original currency
                     </em>
                   )}
                   {total.estimated_eur_count > 0 && (
                     <em title={`${total.estimated_eur_count} event(s) use the latest available rate because no rate was stored for the transaction date`}>
-                      estimated FX
+                      some converted at today's rate
                     </em>
                   )}
                 </small>
@@ -280,11 +340,15 @@ export function ActivityPage() {
             </div>
           </>
         ) : result ? (
-          <EmptyState title="No matching activity">
-            Try widening the dates or clearing a filter.
+          <EmptyState title="Nothing here for this period">
+            {period !== "all" ? (
+              <button type="button" className="text-button" onClick={() => resetAnd(() => setPeriod("all"))}>
+                Show all time
+              </button>
+            ) : "Try clearing a filter or search term."}
           </EmptyState>
         ) : (
-          <div className="holdings-loading">Loading portfolio activity…</div>
+          <div className="holdings-loading">Loading your activity…</div>
         )}
       </section>
     </>

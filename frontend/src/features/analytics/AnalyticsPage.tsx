@@ -28,8 +28,8 @@ const rangeDescriptions: Record<PortfolioPerformance["range"], string> = {
   all: "All available history",
 };
 const dimensionLabels: Record<AllocationBreakdown["dimension"], string> = {
-  asset_type: "Asset type", holding: "Holding", broker: "Broker",
-  currency: "Currency", sector: "Sector", geography: "Geography",
+  asset_type: "Type", holding: "Investment", broker: "Broker",
+  currency: "Currency", sector: "Sector", geography: "Region",
 };
 const valueLabels: Record<string, string> = {
   stock: "Stocks", etf: "ETFs", crypto: "Crypto", cash: "Cash", other: "Other",
@@ -48,12 +48,17 @@ function tone(value: number) {
   return value > 0 ? "positive" : value < 0 ? "negative" : "";
 }
 
+const coverageLabels: Record<string, string | null> = {
+  available: null,
+  partial: "Some data missing",
+  unavailable: "Not available yet",
+};
+
 function Coverage({ status, coverage }: { status: string; coverage?: string }) {
-  return (
-    <span className={`analytics-coverage ${status}`}>
-      {coverage ? `Based on ${percent.format(Number(coverage))}% of your portfolio` : status}
-    </span>
-  );
+  const label = coverage
+    ? Number(coverage) >= 100 ? null : `Based on ${percent.format(Number(coverage))}% of your portfolio`
+    : coverageLabels[status] ?? null;
+  return label ? <span className={`analytics-coverage ${status}`}>{label}</span> : null;
 }
 
 function AllocationBars({ breakdown }: { breakdown: AllocationBreakdown }) {
@@ -147,6 +152,27 @@ function ReturnFigure({ data }: { data: AnalyticsResponse["benchmark"] }) {
   );
 }
 
+type RiskLevel = "low" | "medium" | "high";
+const riskLevelLabels: Record<RiskLevel, string> = { low: "Low", medium: "Medium", high: "High" };
+
+function RiskCard({ label, value, display, level, meaning }: {
+  label: string;
+  value: number | null;
+  display: (value: number) => string;
+  level: (value: number) => RiskLevel;
+  meaning: string;
+}) {
+  const rating = value === null ? null : level(value);
+  return (
+    <article>
+      <span>{label}</span>
+      <strong>{value === null ? "—" : display(value)}</strong>
+      {rating && <em className={`risk-level ${rating}`}>{riskLevelLabels[rating]} risk</em>}
+      <small>{value === null ? "Needs more history." : meaning}</small>
+    </article>
+  );
+}
+
 export function AnalyticsPage() {
   const [selectedRange, setSelectedRange] = useState<PortfolioPerformance["range"]>("1y");
   const [data, setData] = useState<AnalyticsResponse | null>(null);
@@ -219,7 +245,7 @@ export function AnalyticsPage() {
   return (
     <>
       <header className="page-header analytics-page-header">
-        <div><p className="eyebrow">Portfolio analytics</p><h1>Understand what drives your wealth</h1></div>
+        <div><p className="eyebrow">Insights</p><h1>How your portfolio is doing</h1></div>
         <div className="history-range-picker" aria-label="Analytics history range">
           {rangeOptions.map((option) => (
             <button
@@ -232,19 +258,11 @@ export function AnalyticsPage() {
         </div>
       </header>
       {error && <p className="error">{error}</p>}
-      {loading && !data && <section className="panel analytics-loading">Calculating portfolio analytics…</section>}
+      {loading && !data && <section className="panel analytics-loading">Crunching the numbers…</section>}
       {data && (
         <>
-          <section className="analytics-risk-grid">
-            <article><span>Maximum drawdown</span><strong>{data.risk.maximum_drawdown_percentage === null ? "—" : `−${percent.format(Number(data.risk.maximum_drawdown_percentage))}%`}</strong><small>{data.risk.observation_count} observations</small></article>
-            <article><span>Annualized volatility</span><strong>{data.risk.annualized_volatility_percentage === null ? "—" : `${percent.format(Number(data.risk.annualized_volatility_percentage))}%`}</strong><small>Cash-flow adjusted</small></article>
-            <article><span>Largest holding</span><strong>{percent.format(Number(data.risk.largest_holding_percentage))}%</strong><small>Top five {percent.format(Number(data.risk.top_five_percentage))}%</small></article>
-            <article><span>Diversification</span><strong>{percent.format(Number(data.risk.diversification_score))}/100</strong><small>{data.risk.effective_holdings} effective holdings</small></article>
-          </section>
-          <p className="analytics-method-note"><Coverage status={data.risk.status} />{data.risk.message}</p>
-
           <section className="panel analytics-allocation-panel">
-            <div className="panel-heading"><div><p className="eyebrow">Allocation</p><h2>Portfolio composition</h2></div></div>
+            <div className="panel-heading"><div><p className="eyebrow">What do I own?</p><h2>Where your money is</h2></div></div>
             <div className="analytics-tabs" role="tablist" aria-label="Allocation dimension">
               {data.allocations.map((item) => (
                 <button type="button" role="tab" key={item.dimension}
@@ -260,45 +278,80 @@ export function AnalyticsPage() {
 
           <section className="analytics-two-column">
             <article className="panel">
-              <div className="panel-heading"><div><p className="eyebrow">Open performance</p><h2>Best and worst holdings</h2></div><Coverage status="available" coverage={data.performance.coverage_percentage} /></div>
+              <div className="panel-heading"><div><p className="eyebrow">What's working?</p><h2>Best and worst investments</h2></div><Coverage status="available" coverage={data.performance.coverage_percentage} /></div>
               <div className="leader-columns">
-                <div><h3>Best</h3><PerformerList items={data.performance.best} empty="No covered gains yet." /></div>
-                <div><h3>Worst</h3><PerformerList items={data.performance.worst} empty="No covered losses yet." /></div>
+                <div><h3>Best</h3><PerformerList items={data.performance.best} empty="No gains yet." /></div>
+                <div><h3>Worst</h3><PerformerList items={data.performance.worst} empty="No losses yet." /></div>
               </div>
               <p className="analytics-caption">{data.performance.message}</p>
             </article>
             <article className="panel">
-              <div className="panel-heading"><div><p className="eyebrow">Contribution</p><h2>Impact on portfolio</h2></div></div>
+              <div className="panel-heading"><div><p className="eyebrow">What moves the total?</p><h2>Effect on your whole portfolio</h2></div></div>
               {data.performance.contributors.length
                 ? <ContributionBars items={data.performance.contributors} />
                 : <EmptyState title="No profit/loss data yet">Sync a source that reports profit and loss to see what drives your returns.</EmptyState>}
             </article>
           </section>
 
+          <section className="panel analytics-risk-panel">
+            <div className="panel-heading"><div><p className="eyebrow">How risky is it?</p><h2>Risk at a glance</h2></div></div>
+            <div className="analytics-risk-grid">
+              <RiskCard
+                label="Biggest drop"
+                value={data.risk.maximum_drawdown_percentage === null ? null : Number(data.risk.maximum_drawdown_percentage)}
+                display={(value) => `−${percent.format(value)}%`}
+                level={(value) => (value < 10 ? "low" : value < 25 ? "medium" : "high")}
+                meaning="The largest fall from a high point in this period."
+              />
+              <RiskCard
+                label="Ups and downs"
+                value={data.risk.annualized_volatility_percentage === null ? null : Number(data.risk.annualized_volatility_percentage)}
+                display={(value) => `${percent.format(value)}%`}
+                level={(value) => (value < 10 ? "low" : value < 20 ? "medium" : "high")}
+                meaning="How much your value typically swings in a year."
+              />
+              <RiskCard
+                label="Biggest single investment"
+                value={Number(data.risk.largest_holding_percentage)}
+                display={(value) => `${percent.format(value)}%`}
+                level={(value) => (value < 15 ? "low" : value < 30 ? "medium" : "high")}
+                meaning={`Share of your portfolio in one investment. Your top five make up ${percent.format(Number(data.risk.top_five_percentage))}%.`}
+              />
+              <RiskCard
+                label="Spread"
+                value={Number(data.risk.diversification_score)}
+                display={(value) => `${percent.format(value)}/100`}
+                level={(value) => (value >= 70 ? "low" : value >= 40 ? "medium" : "high")}
+                meaning={`How evenly your money is spread — like holding about ${data.risk.effective_holdings} equal investments.`}
+              />
+            </div>
+            <p className="analytics-method-note"><Coverage status={data.risk.status} />{data.risk.message} Ratings are a rough guide, not advice.</p>
+          </section>
+
           <section className="panel analytics-benchmark-panel">
             <div className="panel-heading">
               <div>
-                <p className="eyebrow">Benchmark</p>
-                <h2>Portfolio versus an investable ETF</h2>
+                <p className="eyebrow">Am I beating the market?</p>
+                <h2>You compared with a popular fund</h2>
                 <p className="analytics-panel-period">{rangeDescriptions[data.range]}</p>
               </div>
-              <label className="benchmark-select">Compare with<select value={data.benchmark.selected_instrument_id ?? ""} onChange={(event) => void saveBenchmark(event.target.value)}>
+              {data.benchmark.options.length > 0 && <label className="benchmark-select">Compare with<select value={data.benchmark.selected_instrument_id ?? ""} onChange={(event) => void saveBenchmark(event.target.value)}>
                 {data.benchmark.options.map((option) => <option value={option.instrument_id} key={option.instrument_id}>{option.symbol} · {option.name}</option>)}
-              </select></label>
+              </select></label>}
             </div>
             {data.benchmark.points.length > 1 ? <ReturnFigure data={data.benchmark} /> : (
-              <EmptyState title="Benchmark history unavailable">A cached ETF with overlapping history is needed.</EmptyState>
+              <EmptyState title="Comparison not available yet">There isn't enough price history for the chosen fund in this period.</EmptyState>
             )}
             <p className="analytics-caption"><Coverage status={data.benchmark.status} />{data.benchmark.message}</p>
           </section>
 
-          <section className="panel analytics-target-panel">
-            <div className="panel-heading">
-              <div><p className="eyebrow">Target allocation</p><h2>Drift and rebalancing illustration</h2></div>
+          <details className="panel analytics-target-panel">
+            <summary className="panel-heading">
+              <div><p className="eyebrow">Optional · for planners</p><h2>Set target percentages</h2></div>
               <div className={`target-total ${targetTotal > 100 ? "negative" : ""}`}>{percent.format(targetTotal)}% assigned</div>
-            </div>
+            </summary>
             <div className="target-table">
-              <div className="target-table-head"><span>Holding</span><span>Current</span><span>Target</span><span>Drift</span><span>Illustration</span></div>
+              <div className="target-table-head"><span>Investment</span><span>Now</span><span>Target</span><span>Difference</span><span>To get there</span></div>
               {data.targets.items.map((item) => {
                 const draft = targetDrafts[item.holding_key] ?? "";
                 const target = draft.trim() ? Number(draft) : null;
@@ -309,14 +362,14 @@ export function AnalyticsPage() {
                     <span><strong>{item.symbol}</strong><small>{item.name}</small></span>
                     <span>{item.current_percentage}%</span>
                     <label><input type="number" min="0" max="100" step="0.1" value={draft} placeholder="—" aria-label={`${item.symbol} target percentage`} onChange={(event) => setTargetDrafts((current) => ({ ...current, [item.holding_key]: event.target.value }))} /><small>%</small></label>
-                    <span className={drift === null ? "muted" : tone(-drift)}>{drift === null ? "Not set" : signed(drift, " pp")}</span>
+                    <span className={drift === null ? "muted" : tone(-drift)}>{drift === null ? "Not set" : signed(drift, " points")}</span>
                     <span className={difference === null ? "muted" : tone(difference)}>{difference === null ? "—" : `${difference > 0 ? "Add " : "Reduce "}${money.format(Math.abs(difference))}`}</span>
                   </div>
                 );
               })}
             </div>
             <div className="target-actions"><p>{data.targets.message}</p><button type="button" disabled={savingTargets || targetTotal > 100} onClick={() => void saveTargets()}>{savingTargets ? "Saving…" : "Save targets"}</button></div>
-          </section>
+          </details>
         </>
       )}
     </>

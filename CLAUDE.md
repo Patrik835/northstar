@@ -21,6 +21,12 @@ Cloudflare Tunnel.
   history coverage is partial, label it partial or withhold it (see `docs/CODEBASE_REVIEW.md`).
 - **Fewer, clearer screens beat more features.** Before adding a page, check whether it fits
   in an existing one.
+- Show money with `src/lib/format.ts` (`formatEur`, `formatChange`, `formatPercentChange`,
+  `tone`) so € values, +/− signs and green/red look the same everywhere. Activity names come from
+  `src/domain/activity.ts`. Gain/loss totals use `summarizePnl` (`holdings/holdingMath.ts`), which
+  respects partial coverage. Don't recompute P/L elsewhere.
+- Lead with the few numbers users care about. Put advanced detail behind "More details" or a
+  collapsed section, not on the main view.
 - Use plain language in the UI. Don't show internal terms such as "reconciliation",
   "sync run" or "canonical instrument" to users.
 

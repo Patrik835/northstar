@@ -51,7 +51,7 @@ test("platform filter scopes all performance figures", async ({ page }) => {
     await page.locator(".holding-row").click();
     const strip = page.locator(".holding-performance-strip");
     await expect(strip).toContainText("+€167.00");
-    await page.locator(".platform-switch").getByRole("button", { name: /Binance/ }).click();
+    await page.getByLabel("Broker").selectOption(broker);
     await expect(strip).toContainText("+€62.00");
     await expect(strip).toContainText("+€10.00");
     await expect(strip).toContainText("€3.00");

@@ -6,29 +6,24 @@ import type {
   ConnectionGuide,
   StatementImportResult,
 } from "../../api/types";
+import { relativeTime } from "../../components/FreshnessStatus";
 import { brokerName } from "../../domain/brokers";
+import { Link } from "../../routing/Router";
 import { SourceDialog, SourceMark } from "./SourceDialog";
 
-type SourceFilter = "all" | "connected" | "api" | "csv";
-
 function statusLabel(connection: Connection, isCsv: boolean) {
-  if (connection.status === "pending") return "Waiting for data";
-  if (connection.status === "active") return connection.is_stale ? "Connected" : "Up to date";
-  if (connection.status === "limited") {
-    return isCsv ? "Imported with estimates" : "Connected with limitations";
-  }
-  if (connection.status === "error") return "Needs attention";
-  return "Disabled";
+  if (connection.status === "pending") return "Updating…";
+  if (connection.status === "error") return "Needs your attention";
+  if (connection.status === "disabled") return "Paused";
+  if (connection.status === "limited") return isCsv ? "Imported (some values estimated)" : "Connected (some history missing)";
+  if (isCsv) return connection.is_stale ? "Import a newer file to refresh" : "Imported";
+  return connection.is_stale ? "Not up to date" : "Up to date";
 }
 
-function freshnessLabel(connection: Connection, isCsv: boolean) {
-  if (connection.freshness_status === "never_synced") return "No successful sync";
-  if (connection.freshness_status === "stale") return "Stale data";
-  return isCsv ? "Imported data" : "Fresh data";
-}
-
-function timestamp(value: string | null) {
-  return value ? new Date(value).toLocaleString() : "Not yet";
+function statusTone(connection: Connection) {
+  if (connection.status === "error") return "error";
+  if (connection.status === "pending" || connection.status === "limited" || connection.is_stale) return "limited";
+  return "active";
 }
 
 export function ConnectionsPage() {
@@ -40,12 +35,11 @@ export function ConnectionsPage() {
   const [modalMessage, setModalMessage] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<SourceFilter>(() => {
-    // Deep link from onboarding: /connections?type=api or ?type=csv.
-    const type = new URLSearchParams(window.location.search).get("type");
-    return type === "api" || type === "csv" ? type : "all";
-  });
+  const [success, setSuccess] = useState(false);
+  // Deep link from onboarding: /connections?type=csv shows file imports first.
+  const [firstGroup] = useState<"api" | "csv">(() =>
+    new URLSearchParams(window.location.search).get("type") === "csv" ? "csv" : "api",
+  );
 
   async function refresh() {
     setConnections(await api<Connection[]>("/connections"));
@@ -55,22 +49,6 @@ export function ConnectionsPage() {
     void refresh();
     api<ConnectionGuide[]>("/connections/guides").then(setGuides);
   }, []);
-
-  const filteredGuides = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    return guides.filter((guide) => {
-      const current = connections.some((item) => item.broker === guide.broker);
-      if (filter === "connected" && !current) return false;
-      if (filter === "api" && guide.connection_type !== "api") return false;
-      if (filter === "csv" && guide.connection_type !== "csv") return false;
-      return (
-        !needle ||
-        guide.display_name.toLowerCase().includes(needle) ||
-        guide.category.toLowerCase().includes(needle) ||
-        guide.description.toLowerCase().includes(needle)
-      );
-    });
-  }, [connections, filter, guides, query]);
 
   const automaticConnectionCount = useMemo(
     () =>
@@ -130,16 +108,15 @@ export function ConnectionsPage() {
           });
       const wasReconnect = reconnecting !== null;
       closeModal();
+      setSuccess(connection.status !== "error");
       setMessage(
         connection.status === "active"
           ? wasReconnect
-            ? `${brokerName(connection.broker)} credentials replaced and portfolio updated.`
-            : `${brokerName(connection.broker)} connected and portfolio imported.`
+            ? `${brokerName(connection.broker)} is working again and your portfolio is updated.`
+            : `${brokerName(connection.broker)} is connected and your investments are imported.`
           : connection.status === "limited"
-            ? wasReconnect
-              ? `${brokerName(connection.broker)} credentials replaced; history access is limited.`
-              : `${brokerName(connection.broker)} imported with limited history access.`
-            : connection.last_error || "The connection was saved but needs attention.",
+            ? `${brokerName(connection.broker)} is connected. Some older history isn't available from this broker.`
+            : connection.last_error || "Saved, but the connection needs your attention.",
       );
       await refresh();
     } catch (reason) {
@@ -173,14 +150,15 @@ export function ConnectionsPage() {
         body: form,
       });
       closeModal();
+      setSuccess(true);
       setMessage(
         `Imported ${result.positions_imported} ${fileImport.holding_label}${
           result.positions_imported === 1 ? "" : "s"
         } and ${result.transactions_added} new transaction${
           result.transactions_added === 1 ? "" : "s"
-        }. ${result.duplicates_skipped} duplicate${
-          result.duplicates_skipped === 1 ? " was" : "s were"
-        } skipped.${
+        }.${result.duplicates_skipped ? ` ${result.duplicates_skipped} already imported ${
+          result.duplicates_skipped === 1 ? "entry was" : "entries were"
+        } skipped.` : ""}${
           result.warnings.length
             ? ` ${result.warnings[0]}${
                 result.warnings.length > 1
@@ -204,6 +182,7 @@ export function ConnectionsPage() {
   async function sync(connection: Connection) {
     setBusyId(connection.id);
     setMessage("");
+    setSuccess(false);
     try {
       const result = await api<Connection>(`/connections/${connection.id}/sync`, {
         method: "POST",
@@ -225,6 +204,7 @@ export function ConnectionsPage() {
     setBusyId("all");
     setOpenMenuId(null);
     setMessage("");
+    setSuccess(false);
     try {
       const results = await api<Connection[]>("/connections/sync-all", {
         method: "POST",
@@ -232,7 +212,7 @@ export function ConnectionsPage() {
       const failed = results.filter((connection) => connection.status === "error").length;
       setMessage(
         results.length === 0
-          ? "There are no automatic sources to synchronize."
+          ? "There are no automatic sources to update."
           : failed > 0
             ? `${results.length - failed} source${
                 results.length - failed === 1 ? "" : "s"
@@ -256,6 +236,7 @@ export function ConnectionsPage() {
     }
     setBusyId(connection.id);
     setMessage("");
+    setSuccess(false);
     try {
       await api(`/connections/${connection.id}`, { method: "DELETE" });
       setMessage(`${brokerName(connection.broker)} source removed.`);
@@ -278,20 +259,25 @@ export function ConnectionsPage() {
           <p className="eyebrow">Portfolio sources</p>
           <h1>Sources</h1>
           <p className="page-intro">
-            Connect live accounts or import statements. Northstar keeps each source separate
-            and combines matching investments in Holdings.
+            Where your investments come from. Connect a broker once and it updates by itself,
+            or upload the statement file your broker gives you.
           </p>
         </div>
       </header>
 
-      {message && <p className="notice">{message}</p>}
+      {message && (
+        <p className={`notice${success ? " success-notice" : ""}`} role="status">
+          {message}
+          {success && <> <Link to="/holdings">See your holdings →</Link></>}
+        </p>
+      )}
 
       {connections.length > 0 && (
         <section className="connected-section">
           <div className="section-heading">
             <div>
               <p className="eyebrow">Your data</p>
-              <h2>Connected sources</h2>
+              <h2>Your sources</h2>
             </div>
             <div className="section-heading-actions">
               <span className="connection-count">{connections.length}</span>
@@ -300,12 +286,12 @@ export function ConnectionsPage() {
                 disabled={busyId !== null || automaticConnectionCount === 0}
                 title={
                   automaticConnectionCount > 0
-                    ? "Synchronize all automatic sources"
-                    : "No automatic sources connected"
+                    ? "Fetch the latest data from every connected broker"
+                    : "No automatically updating sources yet"
                 }
                 onClick={() => void syncAll()}
               >
-                {busyId === "all" ? "Syncing all…" : "Sync all now"}
+                {busyId === "all" ? "Updating…" : "Update all now"}
               </button>
             </div>
           </div>
@@ -323,42 +309,19 @@ export function ConnectionsPage() {
                   <div className="connected-main">
                     <div>
                       <strong>{guide?.display_name ?? brokerName(connection.broker)}</strong>
-                      <span className={`status ${connection.status}`}>
+                      <span className={`status ${statusTone(connection)}`}>
                         {statusLabel(connection, isCsv)}
-                      </span>
-                      <span
-                        className={`freshness ${connection.freshness_status}`}
-                        title={
-                          connection.stale_after
-                            ? `Considered stale after ${timestamp(connection.stale_after)}`
-                            : undefined
-                        }
-                      >
-                        <span aria-hidden="true" />
-                        {freshnessLabel(connection, isCsv)}
                       </span>
                     </div>
                     <small>
-                      {isCsv
-                        ? "File import"
-                        : `Credential ${connection.credential_hint.replace("••••", "ending ")}`}
+                      {isCsv ? "File import" : `Key ${connection.credential_hint.replace("••••", "ending ")}`}
+                      {" · "}
+                      {connection.last_successful_sync_at
+                        ? `${isCsv ? "Imported" : "Updated"} ${relativeTime(connection.last_successful_sync_at)}`
+                        : "Not updated yet"}
                     </small>
-                    <div className="connection-timestamps">
-                      <span>
-                        {isCsv ? "Last import" : "Last successful sync"}: {timestamp(connection.last_successful_sync_at)}
-                      </span>
-                      {connection.status === "error" && connection.last_sync_attempt_at && (
-                        <span>Last attempt: {timestamp(connection.last_sync_attempt_at)}</span>
-                      )}
-                    </div>
                     {connection.last_error && (
-                      <p
-                        className={
-                          connection.status === "error"
-                            ? "connection-error"
-                            : "connection-warning"
-                        }
-                      >
+                      <p className={connection.status === "error" ? "connection-error" : "connection-warning"}>
                         {connection.last_error}
                       </p>
                     )}
@@ -370,7 +333,15 @@ export function ConnectionsPage() {
                         disabled={isBusy}
                         onClick={() => guide && openSource(guide)}
                       >
-                        Import newer file
+                        Upload newer file
+                      </button>
+                    ) : connection.status === "error" && guide ? (
+                      <button
+                        className="primary"
+                        disabled={isBusy}
+                        onClick={() => openReconnect(connection, guide)}
+                      >
+                        Fix connection
                       </button>
                     ) : (
                       <button
@@ -378,7 +349,7 @@ export function ConnectionsPage() {
                         disabled={isBusy}
                         onClick={() => void sync(connection)}
                       >
-                        {busyId === connection.id ? "Syncing…" : "Sync now"}
+                        {busyId === connection.id ? "Updating…" : "Update now"}
                       </button>
                     )}
                     <div
@@ -415,7 +386,7 @@ export function ConnectionsPage() {
                               disabled={!guide}
                               onClick={() => guide && openReconnect(connection, guide)}
                             >
-                              Replace credentials
+                              Replace API key
                             </button>
                           )}
                           <button
@@ -436,77 +407,49 @@ export function ConnectionsPage() {
         </section>
       )}
 
-      <section className="source-directory panel">
-        <div className="directory-header">
-          <div>
-            <p className="eyebrow">Source directory</p>
-            <h2>Add or manage a source</h2>
-          </div>
-          <label className="source-search">
-            <span>Search sources</span>
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Broker, exchange, import…"
-            />
-          </label>
-        </div>
-        <div className="source-filter-row">
-          {(
-            [
-              ["all", "All sources"],
-              ["connected", "Connected"],
-              ["api", "Automatic sync"],
-              ["csv", "File imports"],
-            ] as Array<[SourceFilter, string]>
-          ).map(([value, label]) => (
-            <button
-              key={value}
-              className={filter === value ? "active" : ""}
-              onClick={() => setFilter(value)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-
-        {filteredGuides.length ? (
-          <div className="source-catalog">
-            {filteredGuides.map((guide) => {
-              const current = connections.find((item) => item.broker === guide.broker);
-              return (
-                <article className="source-catalog-item" key={guide.broker}>
-                  <SourceMark broker={guide.broker} shortMark={guide.short_mark} />
-                  <div className="catalog-copy">
-                    <div>
-                      <h3>{guide.display_name}</h3>
-                      <span>{guide.category}</span>
+      {(firstGroup === "api" ? (["api", "csv"] as const) : (["csv", "api"] as const)).map((group) => {
+        const groupGuides = guides.filter((guide) => guide.connection_type === group);
+        if (!groupGuides.length) return null;
+        return (
+          <section className="source-directory panel" key={group}>
+            <div className="directory-header">
+              <div>
+                <p className="eyebrow">{group === "api" ? "Updates automatically" : "Upload a file"}</p>
+                <h2>{group === "api" ? "Connect a broker" : "Import a statement"}</h2>
+                <p className="muted directory-intro">
+                  {group === "api"
+                    ? "Create a read-only key in your broker's app and paste it here. We can never trade or withdraw."
+                    : "For brokers without a connection: download your statement and upload it. Re-uploading is safe."}
+                </p>
+              </div>
+            </div>
+            <div className="source-catalog">
+              {groupGuides.map((guide) => {
+                const current = connections.find((item) => item.broker === guide.broker);
+                return (
+                  <article className="source-catalog-item" key={guide.broker}>
+                    <SourceMark broker={guide.broker} shortMark={guide.short_mark} />
+                    <div className="catalog-copy">
+                      <div>
+                        <h3>{guide.display_name}</h3>
+                        <span>{guide.category}</span>
+                      </div>
+                      <p>{guide.description}</p>
                     </div>
-                    <p>{guide.description}</p>
-                    <small>
-                      {guide.connection_type === "api"
-                        ? `Automatic · ${guide.sync_frequency_label ?? "Scheduled"}`
-                        : "Manual import"}
-                    </small>
-                  </div>
-                  {current && guide.connection_type === "api" ? (
-                    <span className="catalog-connected">Connected</span>
-                  ) : (
-                    <button className="secondary" onClick={() => openSource(guide)}>
-                      {current ? "Import again" : guide.connection_type === "csv" ? "Import" : "Connect"}
-                    </button>
-                  )}
-                </article>
-              );
-            })}
-          </div>
-        ) : (
-          <div className="directory-empty">
-            <strong>No sources match</strong>
-            <p>Try a different search or filter.</p>
-          </div>
-        )}
-      </section>
+                    {current && guide.connection_type === "api" ? (
+                      <span className="catalog-connected">Connected ✓</span>
+                    ) : (
+                      <button className={current ? "secondary" : "primary"} onClick={() => openSource(guide)}>
+                        {current ? "Upload newer file" : guide.connection_type === "csv" ? "Import" : "Connect"}
+                      </button>
+                    )}
+                  </article>
+                );
+              })}
+            </div>
+          </section>
+        );
+      })}
 
       {selected && (
         <SourceDialog

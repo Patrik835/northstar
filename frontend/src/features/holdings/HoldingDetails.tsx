@@ -6,6 +6,7 @@ import type {
   Holding,
   HoldingSource,
 } from "../../api/types";
+import { activityLabels } from "../../domain/activity";
 import { brokerName } from "../../domain/brokers";
 import { Link } from "../../routing/Router";
 import { eur, quantity, sourceValue, sourceQuantity, originalMoney, timestamp, valuationLabel, preferredSourcePnl, signedMoney, signedPercentage, type PnlSummary } from "./holdingMath";
@@ -13,12 +14,14 @@ import { eur, quantity, sourceValue, sourceQuantity, originalMoney, timestamp, v
 export function PnlLine({
   summary,
   unavailable = false,
+  label = "Gain/loss",
 }: {
   summary: PnlSummary | null;
   unavailable?: boolean;
+  label?: string;
 }) {
   if (!summary) {
-    return unavailable ? <span className="pnl-summary unavailable">P/L unavailable</span> : null;
+    return unavailable ? <span className="pnl-summary unavailable">Gain/loss unknown</span> : null;
   }
   const tone =
     summary.value > 0 ? "positive" : summary.value < 0 ? "negative" : "neutral";
@@ -27,13 +30,13 @@ export function PnlLine({
     <span
       className={`pnl-summary ${tone}`}
       title={summary.calculatedCount
-        ? "Calculated from imported trades; broker-reported P/L is used where trade history is incomplete"
-        : "Open P/L from available purchase costs or broker reports"}
+        ? "Calculated from your imported trades; the broker's own figure is used where trade history is incomplete"
+        : "Compared with what you paid, from your purchase prices or the broker's report"}
     >
-      <span>Open P/L {signedMoney(summary.value)}</span>
+      <span>{label ? `${label} ` : ""}{signedMoney(summary.value)}</span>
       {summary.percentage !== null && <span>{signedPercentage(summary.percentage)}</span>}
       {partial && (
-        <em title={`Reported by ${summary.sourceCount} of ${summary.totalSources} sources`}>
+        <em title={`Known for ${summary.sourceCount} of ${summary.totalSources} positions; the rest have no price paid`}>
           partial
         </em>
       )}
@@ -46,7 +49,7 @@ export function SourcePnlMetric({ source }: { source: HoldingSource }) {
   if (!pnl) {
     return (
       <div>
-        <dt>P/L</dt>
+        <dt>Gain/loss</dt>
         <dd className="unavailable">Not available</dd>
       </div>
     );
@@ -63,7 +66,7 @@ export function SourcePnlMetric({ source }: { source: HoldingSource }) {
 
   return (
     <div>
-      <dt>Open P/L</dt>
+      <dt>Gain/loss</dt>
       <dd className={`pnl-source-value ${pnl.valueEur >= 0 ? "positive" : "negative"}`}>
         <span>
           {pnl.kind === "reported" && source.reported_pnl !== null
@@ -76,8 +79,8 @@ export function SourcePnlMetric({ source }: { source: HoldingSource }) {
             ? source.valuation_source === "market"
               ? "Calculated from latest market price" : "Calculated from your manual prices"
             : pnl.kind === "calculated"
-              ? "Calculated from trades"
-              : "Reported by broker"}
+              ? "Calculated from your trades"
+              : "Reported by the broker"}
         </small>
       </dd>
     </div>
@@ -108,9 +111,9 @@ export function HoldingPerformanceSummary({ holding }: { holding: ScopedHolding 
     ? null
     : Number(performance.total_return_eur);
   return (
-    <section className="holding-performance-strip" aria-label="Imported performance history">
+    <section className="holding-performance-strip" aria-label="Results over time">
       <div className="performance-strip-heading">
-        <span>Performance history</span>
+        <span>Results over time</span>
         <small>
           {performance.coverage === "complete"
             ? "Full trade history"
@@ -118,13 +121,13 @@ export function HoldingPerformanceSummary({ holding }: { holding: ScopedHolding 
         </small>
       </div>
       <div>
-        <small>{performance.coverage === "complete" ? "Realized" : "Known realized"}</small>
+        <small>Profit from sales</small>
         <strong className={realized === null ? "unavailable" : performanceTone(realized)}>
           {realized === null ? "—" : signedMoney(realized)}
         </strong>
       </div>
       <div>
-        <small>Income</small>
+        <small>Dividends &amp; interest</small>
         <strong>{eur.format(income)}</strong>
       </div>
       <div>
@@ -132,7 +135,7 @@ export function HoldingPerformanceSummary({ holding }: { holding: ScopedHolding 
         <strong>{fees ? `−${eur.format(fees)}` : eur.format(0)}</strong>
       </div>
       <div>
-        <small>Total return</small>
+        <small>Total result</small>
         <strong className={totalReturn === null ? "unavailable" : performanceTone(totalReturn)}>
           {totalReturn === null ? "—" : signedMoney(totalReturn)}
         </strong>
@@ -161,13 +164,49 @@ export function HoldingDetails({
     });
     api<ActivityResponse>(`/activity?${params.toString()}`).then(setActivity).catch(() => null);
   }, [holding.key]);
+  const income = Number(holding.performance.income_eur);
+  const manualSources = holding.sources.filter((source) => source.broker === "manual");
   return (
     <div className="holding-details">
+      <dl className="holding-summary-grid">
+        <div className="cost-basis-inline">
+          <dt>What you paid</dt>
+          <dd>{costBasis !== null && costBasis >= 0 ? eur.format(costBasis) : "Unknown"}</dd>
+        </div>
+        <div>
+          <dt>Worth now</dt>
+          <dd>{eur.format(holding.totalValue)}</dd>
+        </div>
+        <div>
+          <dt>Gain/loss</dt>
+          <dd><PnlLine summary={holding.pnl} unavailable label="" /></dd>
+        </div>
+        <div>
+          <dt>Dividends &amp; interest</dt>
+          <dd>{eur.format(income)}</dd>
+        </div>
+      </dl>
+      {manualSources.length > 0 && (
+        <div className="manual-source-actions holding-manual-actions">
+          {manualSources.map((source) => (
+            <span key={source.provider_instrument_id}>
+              <button type="button" className="secondary" onClick={() => onEditManual(source, holding.asset_type)}>
+                Edit holding
+              </button>
+              <button type="button" className="text-button danger" onClick={() => void onDeleteManual(source)}>
+                Delete
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      <details className="holding-more">
+        <summary>More details{holding.sources.length > 1 ? ` · ${holding.sources.length} brokers` : ""}</summary>
       <div className="canonical-strip">
         <span className="canonical-check">✓</span>
         <div>
           <strong>
-            {holding.grouping === "company" ? "Company exposure" : "Same investment across brokers"}
+            {holding.grouping === "company" ? "Several listings of one company" : "How this investment is matched"}
           </strong>
           {holding.grouping === "company" ? (
             <p>
@@ -180,20 +219,11 @@ export function HoldingDetails({
                 ? `Matched by ISIN ${holding.isin}`
                 : `Matched as ${holding.symbol}`}
               {holding.sources.length > 1
-                ? ` · ${holding.sources.length} broker aliases combined`
-                : " · 1 broker alias"}
+                ? ` · combined from ${holding.sources.length} brokers`
+                : ""}
             </p>
           )}
         </div>
-        <span className="canonical-metrics">
-          {costBasis !== null && costBasis >= 0 && (
-            <span className="cost-basis-inline">
-              <small>Cost basis</small>
-              <strong>{eur.format(costBasis)}</strong>
-            </span>
-          )}
-          <PnlLine summary={holding.pnl} />
-        </span>
       </div>
       <div className="source-detail-grid">
         {holding.sources.map((source) => (
@@ -215,7 +245,7 @@ export function HoldingDetails({
                 <dd>{quantity.format(sourceQuantity(source))}</dd>
               </div>
               <div>
-                <dt>Average price</dt>
+                <dt>Average price paid</dt>
                 <dd>
                   {source.average_price
                     ? originalMoney(source.average_price, source.currency)
@@ -223,13 +253,13 @@ export function HoldingDetails({
                 </dd>
               </div>
               <div>
-                <dt>Original value</dt>
+                <dt>Value in {source.currency}</dt>
                 <dd>{originalMoney(source.current_value, source.currency)}</dd>
               </div>
               <SourcePnlMetric source={source} />
               {source.performance.realized_pnl_eur !== null && (
                 <div>
-                  <dt>Realized P/L</dt>
+                  <dt>Profit from sales</dt>
                   <dd className={performanceTone(Number(source.performance.realized_pnl_eur))}>
                     {signedMoney(Number(source.performance.realized_pnl_eur))}
                   </dd>
@@ -237,7 +267,7 @@ export function HoldingDetails({
               )}
               {Number(source.performance.income_eur) !== 0 && (
                 <div>
-                  <dt>Imported income</dt>
+                  <dt>Dividends &amp; interest</dt>
                   <dd>{eur.format(Number(source.performance.income_eur))}</dd>
                 </div>
               )}
@@ -249,7 +279,7 @@ export function HoldingDetails({
                 </dd>
               </div>
               <div>
-                <dt>Provider ID</dt>
+                <dt>Broker reference</dt>
                 <dd title={source.provider_instrument_id}>{source.provider_instrument_id}</dd>
               </div>
             </dl>
@@ -258,44 +288,27 @@ export function HoldingDetails({
               <span>
                 {source.valued_at ? `Valued ${timestamp(source.valued_at)}` : "No valuation date"}
                 {` · ${valuationLabel(source)}`}
-                {source.is_stale ? " · Stale" : ""}
+                {source.is_stale ? " · Not up to date" : ""}
               </span>
-              {source.broker === "manual" && (
-                <span className="manual-source-actions">
-                  <button
-                    type="button"
-                    className="text-button"
-                    onClick={() => onEditManual(source, holding.asset_type)}
-                  >
-                    Edit
-                  </button>
-                  <button
-                    type="button"
-                    className="text-button danger"
-                    onClick={() => void onDeleteManual(source)}
-                  >
-                    Delete
-                  </button>
-                </span>
-              )}
             </footer>
           </article>
         ))}
       </div>
       <HoldingPerformanceSummary holding={holding} />
+      </details>
       <div className="holding-activity-preview">
         <div className="panel-heading">
-          <div><p className="eyebrow">Recent activity</p><h3>{holding.name}</h3></div>
+          <div><p className="eyebrow">Recent activity</p></div>
           <Link to="/activity">View all activity</Link>
         </div>
         {activity?.items.length ? activity.items.map((item) => (
           <div className="holding-activity-row" key={item.id}>
-            <span className={`activity-kind ${item.transaction_type}`}>{item.transaction_type}</span>
+            <span className={`activity-kind ${item.transaction_type}`}>{activityLabels[item.transaction_type]}</span>
             <strong>{item.symbol}</strong>
             <span>{new Date(item.executed_at).toLocaleDateString()}</span>
             <span>{item.value_eur === null ? `${originalMoney(item.value, item.currency)}` : eur.format(Number(item.value_eur))}</span>
           </div>
-        )) : <p className="muted">No imported activity for this holding yet.</p>}
+        )) : <p className="muted">No buys, sells or dividends recorded for this holding yet.</p>}
       </div>
     </div>
   );

@@ -66,6 +66,7 @@ test.describe.serial("public release account lifecycle", () => {
 
     await page.getByRole("link", { name: "Settings" }).click();
     await expectNoSeriousAccessibilityViolations(page);
+    await page.getByText("Your data & account", { exact: true }).click();
     const dataPanel = page.locator(".data-controls > form");
     await dataPanel.getByLabel("Current password").fill(originalPassword);
     const downloadPromise = page.waitForEvent("download");
@@ -89,6 +90,7 @@ test.describe.serial("public release account lifecycle", () => {
     await page.getByLabel("Password").fill(resetPassword);
     await page.getByRole("button", { name: "Sign in" }).click();
     await page.getByRole("link", { name: "Settings" }).click();
+    await page.getByText("Your data & account", { exact: true }).click();
     await page.getByText("Delete account", { exact: true }).click();
     const dangerZone = page.locator(".danger-zone");
     await dangerZone.getByLabel("Current password").fill(resetPassword);

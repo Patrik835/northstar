@@ -53,7 +53,7 @@ export function SourceDialog({
   const fileImport = guide.file_import;
   const submitLabel = busy
     ? isFile ? "Importing…" : reconnecting ? "Replacing…" : "Connecting…"
-    : isFile ? "Validate & import" : reconnecting ? "Validate & replace" : "Encrypt & connect";
+    : isFile ? "Import" : reconnecting ? "Save new key" : "Connect";
 
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
@@ -68,7 +68,7 @@ export function SourceDialog({
           <SourceMark broker={guide.broker} shortMark={guide.short_mark} />
           <div>
             <p className="eyebrow">
-              {isFile ? "Secure import" : reconnecting ? "Replace credentials" : "Secure connection"}
+              {isFile ? "Import a file" : reconnecting ? "Fix connection" : "Connect"}
             </p>
             <h2>{guide.display_name}</h2>
           </div>
@@ -83,11 +83,11 @@ export function SourceDialog({
         {reconnecting ? (
           <SetupSteps
             guide={guide}
-            title="Need help creating a replacement key?"
+            title="How to create a new key"
             label="Replacement key instructions"
           />
         ) : (
-          <SetupSteps guide={guide} title={isFile ? "Prepare your export" : "Get your keys"} />
+          <SetupSteps guide={guide} title={isFile ? "How to get the file" : "How to get your key"} />
         )}
 
         {isFile && fileImport ? (
@@ -105,10 +105,10 @@ export function SourceDialog({
           </label>
         ) : (
           <div className="credential-fields">
-            <h3>{reconnecting ? "New credentials" : "Enter your credentials"}</h3>
+            <h3>{reconnecting ? "Paste the new key" : "Paste your key"}</h3>
             {guide.credential_fields.map((field) => (
               <label key={field}>
-                {guide.credential_labels[field] ?? field.replaceAll("_", " ")}
+                {guide.credential_labels[field] ?? `${field.charAt(0).toUpperCase()}${field.slice(1).replaceAll("_", " ")}`}
                 <input name={field} type="password" autoComplete="new-password" required />
               </label>
             ))}

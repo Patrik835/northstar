@@ -18,7 +18,7 @@ test("selects an asset and saves only purchase details and an optional note", as
   await page.goto("/holdings");
   await page.getByRole("button", { name: "Add holding" }).click();
   const form = page.locator(".manual-position-modal");
-  await expect(form.getByRole("button", { name: "Add position", exact: true })).toBeDisabled();
+  await expect(form.getByRole("button", { name: "Add holding", exact: true })).toBeDisabled();
   await expect(form.getByText("3,000 stocks · 150 cryptocurrencies · Search by name or ticker")).toBeVisible();
   const search = form.getByRole("combobox", { name: "Asset", exact: true });
   await search.fill("btc");
@@ -40,8 +40,8 @@ test("selects an asset and saves only purchase details and an optional note", as
   await form.getByLabel("Note optional", { exact: true }).fill("Hardware wallet");
   await expect(form.locator('input[name="name"], input[name="current_price"], input[name="isin"]')).toHaveCount(0);
   await expect(form.locator('input, textarea')).toHaveCount(3);
-  await form.getByRole("button", { name: "Add position", exact: true }).click();
-  await expect(page.getByText("Manual position added.", { exact: true })).toBeVisible();
+  await form.getByRole("button", { name: "Add holding", exact: true }).click();
+  await expect(page.getByText("Holding added.", { exact: true })).toBeVisible();
   expect(saved).toEqual({
     ticker: "BTC", name: "Bitcoin", asset_type: "crypto", quantity: "0.5",
     average_price: "50000", current_price: null, currency: "EUR",

@@ -50,6 +50,6 @@ for (const broker of ["binance", "bybit"]) {
     await expect(page.getByLabel("Average purchase price per unit", { exact: true })).toHaveCount(0);
     await expect(page.locator(".source-detail")).toHaveCount(1);
     await expect(page.locator(".source-detail")).toContainText("Not available");
-    await expect(page.locator(".holding-row")).not.toContainText("Open P/L +");
+    await expect(page.locator(".holding-row .gain-cell")).toHaveText("—");
   });
 }

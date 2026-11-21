@@ -14,7 +14,7 @@ import { brokerName } from "../../domain/brokers";
 import { Link } from "../../routing/Router";
 import { AssetPicker } from "./AssetPicker";
 import type { AssetOption } from "./AssetPicker";
-import { eur, quantity, assetLabels, inGroup, sourceValue, sourceQuantity, timestamp, summarizePnl, combinePerformance, type AssetGroup, type SortKey, type SortDirection } from "./holdingMath";
+import { eur, assetLabels, inGroup, sourceValue, sourceQuantity, timestamp, summarizePnl, combinePerformance, type AssetGroup, type SortKey, type SortDirection } from "./holdingMath";
 import { PnlLine, HoldingDetails } from "./HoldingDetails";
 
 export function HoldingsPage() {
@@ -119,7 +119,7 @@ export function HoldingsPage() {
           body: JSON.stringify(payload),
         },
       );
-      setManualNotice(manualEditor.id ? "Manual position updated." : "Manual position added.");
+      setManualNotice(manualEditor.id ? "Holding updated." : "Holding added.");
       setManualEditor(null);
       await loadPortfolio();
     } catch (reason) {
@@ -131,10 +131,10 @@ export function HoldingsPage() {
 
   async function deleteManual(source: HoldingSource) {
     const id = source.provider_instrument_id.replace(/^MANUAL:/, "");
-    if (!window.confirm(`Delete the manual ${source.provider_symbol} position?`)) return;
+    if (!window.confirm(`Delete your ${source.provider_symbol} holding?`)) return;
     try {
       await api(`/holdings/manual/${id}`, { method: "DELETE" });
-      setManualNotice("Manual position deleted.");
+      setManualNotice("Holding deleted.");
       await loadPortfolio();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not delete position");
@@ -261,6 +261,9 @@ export function HoldingsPage() {
   const cryptoValue = scopedHoldings
     .filter((holding) => holding.asset_type === "crypto")
     .reduce((total, holding) => total + holding.totalValue, 0);
+  const otherValue = scopedHoldings
+    .filter((holding) => inGroup(holding.asset_type, "other"))
+    .reduce((total, holding) => total + holding.totalValue, 0);
   const portfolioPnl = summarizePnl(scopedHoldings.flatMap((holding) => holding.sources));
   const equityPnl = summarizePnl(
     scopedHoldings
@@ -292,9 +295,6 @@ export function HoldingsPage() {
         <div>
           <p className="eyebrow">All your investments</p>
           <h1>Holdings</h1>
-          <p className="page-intro">
-            One clean view of every asset, with each broker position preserved underneath.
-          </p>
         </div>
         <div className="page-header-actions">
           <div className="holdings-header-buttons">
@@ -306,12 +306,12 @@ export function HoldingsPage() {
           <span className={`as-of holdings-as-of${staleConnectionCount ? " stale" : ""}`}>
             <span className="freshness-dot" />
             <span>
-              {scopedAsOf ? `Updated ${timestamp(scopedAsOf)}` : "Awaiting first valuation"}
+              {scopedAsOf ? `Updated ${timestamp(scopedAsOf)}` : "Waiting for the first prices"}
               <small>Values in EUR</small>
             </span>
             {staleConnectionCount > 0 && (
               <em>
-                {staleConnectionCount} stale source{staleConnectionCount === 1 ? "" : "s"}
+                {staleConnectionCount} source{staleConnectionCount === 1 ? " is" : "s are"} not up to date
               </em>
             )}
           </span>
@@ -322,7 +322,7 @@ export function HoldingsPage() {
       {manualNotice && <p className="notice">{manualNotice}</p>}
       {reconciliationWarnings.map((warning) => (
         <p className="holdings-warning reconciliation-warning" key={warning.connection_id}>
-          <strong>Source total needs attention.</strong> {warning.message}
+          <strong>Totals from this broker don't add up yet.</strong> {warning.message}
         </p>
       ))}
       {portfolio?.unmatched_positions ? (
@@ -341,11 +341,9 @@ export function HoldingsPage() {
           aria-controls="holdings-instruments"
           onClick={() => setAssetGroup("all")}
         >
-          <span>{platform === "all" ? "Combined portfolio" : brokerName(platform)}</span>
+          <span>{platform === "all" ? "Everything" : brokerName(platform)}</span>
           <strong>{portfolio ? eur.format(selectedTotal) : "—"}</strong>
-          <small>
-            {platform === "all" ? "Across every connected platform" : "Platform value"}
-          </small>
+          <small>{portfolio ? `${scopedHoldings.length} investments` : "Loading…"}</small>
           {portfolio && <PnlLine summary={portfolioPnl} unavailable />}
         </button>
         <button
@@ -357,7 +355,6 @@ export function HoldingsPage() {
         >
           <span>Stocks & ETFs</span>
           <strong>{portfolio ? eur.format(equityValue) : "—"}</strong>
-          <small>Combined securities</small>
           {portfolio && <PnlLine summary={equityPnl} unavailable />}
         </button>
         <button
@@ -369,77 +366,54 @@ export function HoldingsPage() {
         >
           <span>Crypto</span>
           <strong>{portfolio ? eur.format(cryptoValue) : "—"}</strong>
-          <small>Across crypto platforms</small>
           {portfolio && <PnlLine summary={cryptoPnl} unavailable />}
         </button>
-        <article className="holding-metric count">
-          <span>Instruments</span>
-          <strong>{portfolio ? scopedHoldings.length : "—"}</strong>
-          <small>{portfolio?.position_count ?? "—"} source positions</small>
-        </article>
+        {otherValue > 0 && (
+          <button
+            type="button"
+            className={`holding-metric filter-card other${assetGroup === "other" ? " active" : ""}`}
+            aria-pressed={assetGroup === "other"}
+            aria-controls="holdings-instruments"
+            onClick={() => setAssetGroup("other")}
+          >
+            <span>Cash &amp; other</span>
+            <strong>{eur.format(otherValue)}</strong>
+          </button>
+        )}
       </section>
 
       <section className="panel holdings-panel" id="holdings-instruments">
-        <div className="holdings-toolbar">
-          <div>
-            <p className="toolbar-label">Platform</p>
-            <div className="platform-switch" aria-label="Filter by investment platform">
-              <button
-                className={platform === "all" ? "active" : ""}
-                onClick={() => setPlatform("all")}
+        <div className="holdings-toolbar simple">
+          <label className="holding-search">
+            <span>Search</span>
+            <input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Name or ticker…"
+            />
+          </label>
+          {(portfolio?.sources.length ?? 0) > 1 && (
+            <label className="platform-select">
+              <span>Broker</span>
+              <select
+                value={platform}
+                onChange={(event) => setPlatform(event.target.value as Broker | "all")}
               >
-                All platforms
-              </button>
-              {portfolio?.sources.map((source) => (
-                <button
-                  key={source.label}
-                  className={platform === source.label ? "active" : ""}
-                  onClick={() => setPlatform(source.label as Broker)}
-                >
-                  {brokerName(source.label as Broker)}
-                  <small>{source.percentage}%</small>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="holding-filter-row">
-            <div className="asset-tabs" aria-label="Filter by asset class">
-              {(
-                [
-                  ["all", "All assets"],
-                  ["equities", "Stocks & ETFs"],
-                  ["crypto", "Crypto"],
-                  ["other", "Cash & other"],
-                ] as Array<[AssetGroup, string]>
-              ).map(([value, label]) => (
-                <button
-                  key={value}
-                  className={assetGroup === value ? "active" : ""}
-                  onClick={() => setAssetGroup(value)}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-            <label className="holding-search">
-              <span>Search holdings</span>
-              <input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Name, ticker, ISIN…"
-              />
+                <option value="all">All brokers</option>
+                {portfolio?.sources.map((source) => (
+                  <option key={source.label} value={source.label}>
+                    {brokerName(source.label as Broker)} ({source.percentage}%)
+                  </option>
+                ))}
+              </select>
             </label>
-          </div>
+          )}
         </div>
 
         {visibleHoldings.length ? (
           <div className="holdings-table">
             <div className="holding-table-head">
-              <span>Instrument</span>
-              <span>Type</span>
-              <span>Quantity</span>
-              <span>Platforms</span>
+              <span>Investment</span>
               <span className="holding-sort-column">
                 <button
                   type="button"
@@ -449,14 +423,15 @@ export function HoldingsPage() {
                 >
                   Value {sortKey === "value" && (sortDirection === "desc" ? "↓" : "↑")}
                 </button>
-                <span>/</span>
+              </span>
+              <span className="holding-sort-column">
                 <button
                   type="button"
                   className={sortKey === "pnl" ? "active" : ""}
                   aria-pressed={sortKey === "pnl"}
                   onClick={() => changeSort("pnl")}
                 >
-                  Open P/L {sortKey === "pnl" && (sortDirection === "desc" ? "↓" : "↑")}
+                  Gain/loss {sortKey === "pnl" && (sortDirection === "desc" ? "↓" : "↑")}
                 </button>
               </span>
               <span />
@@ -473,51 +448,34 @@ export function HoldingsPage() {
                   >
                     <span className="holding-identity">
                       <span className={`asset-mark ${holding.asset_type}`}>
-                        {(isCompanyGroup ? holding.name : holding.symbol).slice(0, 2)}
+                        {holding.symbol.slice(0, 2)}
                       </span>
                       <span>
-                        <strong>{isCompanyGroup ? holding.name : holding.symbol}</strong>
+                        <strong>{holding.name}</strong>
                         <small>
                           {isCompanyGroup
-                            ? `${holding.symbols.join(" · ")} · combined company exposure`
-                            : holding.name}
+                            ? holding.symbols.join(" · ")
+                            : `${holding.symbol} · ${assetLabels[holding.asset_type]}`}
+                          {holding.sources.length > 1 ? ` · ${holding.sources.length} brokers` : ""}
                         </small>
                         {(holding.is_stale || holding.has_estimated_value) && (
                           <span className="holding-statuses">
-                            {holding.is_stale && <em className="stale">Stale</em>}
-                            {holding.has_estimated_value && <em>Estimated</em>}
+                            {holding.is_stale && <em className="stale">Not up to date</em>}
+                            {holding.has_estimated_value && <em>Estimated value</em>}
                           </span>
                         )}
                       </span>
-                    </span>
-                    <span>
-                      <span className={`asset-pill ${holding.asset_type}`}>
-                        {assetLabels[holding.asset_type]}
-                      </span>
-                    </span>
-                    <span className="quantity-cell">
-                      {holding.totalQuantity === null
-                        ? `${holding.instrument_count} securities`
-                        : quantity.format(holding.totalQuantity)}
-                    </span>
-                    <span className="source-badges">
-                      {holding.sources.map((source) => (
-                        <span
-                          className={`source-badge ${source.broker}`}
-                          key={`${source.connection_id}:${source.provider_instrument_id}`}
-                        >
-                          {brokerName(source.broker)}
-                        </span>
-                      ))}
                     </span>
                     <span className="value-cell">
                       <strong>{eur.format(holding.totalValue)}</strong>
                       <small>
                         {selectedTotal
-                          ? `${((holding.totalValue * 100) / selectedTotal).toFixed(2)}%`
-                          : "0.00%"}
+                          ? `${((holding.totalValue * 100) / selectedTotal).toFixed(1)}% of portfolio`
+                          : ""}
                       </small>
-                      <PnlLine summary={holding.pnl} />
+                    </span>
+                    <span className="gain-cell">
+                      {holding.pnl ? <PnlLine summary={holding.pnl} label="" /> : <span className="muted">—</span>}
                     </span>
                     <span className="expand-mark">{isOpen ? "−" : "+"}</span>
                   </button>
@@ -535,9 +493,9 @@ export function HoldingsPage() {
         ) : portfolio ? (
           <EmptyState title="No matching holdings">
             {portfolio.position_count
-              ? "Try another platform, asset class, or search term."
-              : "Connect and synchronize a broker to see every holding here. "}
-            {!portfolio.position_count && <Link to="/connections">Add a connection</Link>}
+              ? "Nothing matches. Try another filter or search term."
+              : "Connect a broker, import a statement, or add a holding by hand. "}
+            {!portfolio.position_count && <Link to="/connections">Add a source</Link>}
           </EmptyState>
         ) : (
           <div className="holdings-loading">Loading your consolidated portfolio…</div>
@@ -552,8 +510,8 @@ export function HoldingsPage() {
             onMouseDown={(event) => event.stopPropagation()}
           >
             <div>
-              <p className="eyebrow">Manual holding</p>
-              <h2>{manualEditor.id ? "Edit position" : "Add a position"}</h2>
+              <p className="eyebrow">Your holding</p>
+              <h2>{manualEditor.id ? "Edit holding" : "Add a holding"}</h2>
               <p className="muted manual-position-intro">
                 Choose your asset and enter what you bought.
               </p>
@@ -609,9 +567,8 @@ export function HoldingsPage() {
               </label>
             </div>
             <p className="manual-value-note">
-              Entries for the same asset combine into one position with a weighted purchase price.
-              Market prices update when you save or reload holdings. If a price is unavailable,
-              the last valuation is kept; new holdings fall back to purchase cost.
+              Adding the same asset again combines it into one holding. Prices update
+              automatically; if no price is found, we show what you paid.
             </p>
             {manualError && <p className="connection-error" role="alert">{manualError}</p>}
             <div className="button-row">
@@ -619,7 +576,7 @@ export function HoldingsPage() {
                 Cancel
               </button>
               <button type="submit" className="primary" disabled={savingManual || !selectedAsset}>
-                {savingManual ? "Saving…" : manualEditor.id ? "Save changes" : "Add position"}
+                {savingManual ? "Saving…" : manualEditor.id ? "Save changes" : "Add holding"}
               </button>
             </div>
           </form>

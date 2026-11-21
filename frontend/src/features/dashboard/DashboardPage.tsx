@@ -6,6 +6,7 @@ import type {
   ContentSummary,
   DashboardSummary,
   FeatureStatus,
+  HoldingsResponse,
   PortfolioReview,
   PortfolioHistoryPoint,
   PortfolioPerformance,
@@ -13,12 +14,11 @@ import type {
 import { EmptyState } from "../../components/EmptyState";
 import { CsvDownloadButton } from "../../components/CsvDownloadButton";
 import { brokerNameFromValue } from "../../domain/brokers";
+import { formatEur } from "../../lib/format";
 import { Link } from "../../routing/Router";
 import { GettingStarted } from "./GettingStarted";
+import { OverviewMetrics, TopMovers } from "./OverviewMetrics";
 
-const money = new Intl.NumberFormat("en-IE", {
-  style: "currency", currency: "EUR", maximumFractionDigits: 2,
-});
 const assetLabels: Record<string, string> = {
   stock: "Stocks",
   etf: "ETFs",
@@ -118,11 +118,11 @@ function PortfolioValueFigure({
         <span className="history-readout-date">{formatHistoryDate(activePoint.date)}</span>
         <span className="history-readout-value total-value">
           <i /> <small>Total value</small>
-          <strong>{money.format(Number(activePoint.total_value_eur))}</strong>
+          <strong>{formatEur(Number(activePoint.total_value_eur))}</strong>
         </span>
         <span className="history-readout-value invested-amount">
           <i /> <small>Invested amount</small>
-          <strong>{money.format(Number(activePoint.invested_value_eur))}</strong>
+          <strong>{formatEur(Number(activePoint.invested_value_eur))}</strong>
         </span>
       </div>
       <svg
@@ -195,7 +195,7 @@ function SourceDonut({ items, total }: { items: AllocationItem[]; total: number 
               />
           ))}
         </svg>
-        <span className="donut-center"><small>Total</small><strong>{money.format(total)}</strong></span>
+        <span className="donut-center"><small>Total</small><strong>{formatEur(total)}</strong></span>
       </div>
       <div className="allocation-legend">
         {items.map((item, index) => (
@@ -203,7 +203,7 @@ function SourceDonut({ items, total }: { items: AllocationItem[]; total: number 
             <i style={{ backgroundColor: allocationColors[index % allocationColors.length] }} />
             <span>{brokerNameFromValue(item.label)}</span>
             <strong>{item.percentage}%</strong>
-            <small>{money.format(Number(item.value_eur))}</small>
+            <small>{formatEur(Number(item.value_eur))}</small>
           </div>
         ))}
       </div>
@@ -226,7 +226,7 @@ function AssetAllocation({ items }: { items: AllocationItem[] }) {
               }}
             />
           </div>
-          <small>{money.format(Number(item.value_eur))}</small>
+          <small>{formatEur(Number(item.value_eur))}</small>
         </div>
       ))}
     </div>
@@ -236,7 +236,8 @@ function AssetAllocation({ items }: { items: AllocationItem[] }) {
 export function DashboardPage() {
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [error, setError] = useState("");
-  const [selectedRange, setSelectedRange] = useState<PortfolioPerformance["range"]>("all");
+  const [selectedRange, setSelectedRange] = useState<PortfolioPerformance["range"]>("1y");
+  const [holdings, setHoldings] = useState<HoldingsResponse | null>(null);
   const [performance, setPerformance] = useState<PortfolioPerformance | null>(null);
   const [performanceError, setPerformanceError] = useState("");
   const [performanceLoading, setPerformanceLoading] = useState(true);
@@ -246,6 +247,7 @@ export function DashboardPage() {
   useEffect(() => {
     api<DashboardSummary>("/dashboard/summary")
       .then(setSummary).catch((reason: Error) => setError(reason.message));
+    api<HoldingsResponse>("/holdings").then(setHoldings).catch(() => undefined);
     api<ContentSummary>("/content?news_limit=3&event_limit=3&alert_limit=3")
       .then(setContent).catch(() => undefined);
     loadFeatures().then((status) => {
@@ -301,23 +303,12 @@ export function DashboardPage() {
         <span className="as-of">Values displayed in EUR</span>
       </header>
       {error && <p className="error">{error}</p>}
-      <section className="metric-grid">
-        <article className="metric primary-metric">
-          <span>Total portfolio</span>
-          <strong>{summary ? money.format(Number(summary.total_value_eur)) : "—"}</strong>
-          <small>Across all connected sources</small>
-        </article>
-        <article className="metric">
-          <span>Positions</span>
-          <strong>{summary?.positions_count ?? "—"}</strong>
-          <small><Link to="/holdings">View all holdings</Link></small>
-        </article>
-        <article className="metric">
-          <span>Connected sources</span>
-          <strong>{summary?.by_source.length ?? "—"}</strong>
-          <small><Link to="/connections">Manage sources</Link></small>
-        </article>
-      </section>
+      <OverviewMetrics
+        totalValue={summary ? Number(summary.total_value_eur) : null}
+        holdings={holdings}
+        performance={performance}
+        range={selectedRange}
+      />
 
       <section className="panel portfolio-history-panel">
         <div className="portfolio-history-heading">
@@ -383,7 +374,8 @@ export function DashboardPage() {
         </article>
       </section>
 
-      {(features?.ai || showUpdates) && <section className="dashboard-grid overview-secondary-grid">
+      <section className="dashboard-grid overview-secondary-grid">
+        <TopMovers holdings={holdings} />
         {features?.ai && <article className="panel dashboard-brief-card">
           <div className="panel-heading"><div><p className="eyebrow">AI insight</p><h2>Portfolio review</h2></div><Link to="/assistant">Open</Link></div>
           {review ? <><p className="brief-copy">{review.content.split("\n").find(Boolean)}</p><small>Generated {new Date(review.generated_at).toLocaleDateString()}</small></>
@@ -397,7 +389,7 @@ export function DashboardPage() {
             : features?.news ? <p className="muted">Relevant held-company news will appear here.</p> : null}
           {content?.events[0] && <small>Next: {content.events[0].title} · {new Date(`${content.events[0].event_date}T12:00:00`).toLocaleDateString()}</small>}
         </article>}
-      </section>}
+      </section>
     </>
   );
 }
