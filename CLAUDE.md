@@ -45,7 +45,7 @@ frontend/src/api/           fetch client + shared TS types (types.ts mirrors bac
 frontend/src/domain/        broker display metadata
 frontend/src/routing/       tiny custom router (no react-router); pathname only, read query via window.location
 frontend/src/layouts/AppLayout.tsx  sidebar sections + section tabs (Holdings↔Activity, Analytics↔News)
-frontend/src/styles/global.css   all styling (no CSS framework)
+frontend/src/styles/global.css   all styling (no CSS framework); colours are tokens in :root
 ops/                        backup / restore scripts
 ```
 
@@ -86,6 +86,8 @@ Postgres, alembic downgrade/upgrade round-trip, `pip-audit` and `npm audit`.
   there is a strong reason. Update `src/api/types.ts` when backend schemas change.
   Keep pages small: put sub-components and pure helpers in sibling files (see
   `holdings/HoldingDetails.tsx`, `holdings/holdingMath.ts`, `connections/SourceDialog.tsx`).
+  Use the colour tokens defined in `global.css` `:root` (`--ink`, `--muted`, `--accent`,
+  `--negative`, …), never raw hex values, so the theme stays in one place.
   Empty states must point to the next action. `/holdings?add=1` and `/connections?type=api|csv`
   are onboarding deep links.
 - **Tests**: every bug fix gets a regression test. Connectors get mocked contract tests. Use

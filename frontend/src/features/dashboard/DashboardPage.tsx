@@ -27,7 +27,8 @@ const assetLabels: Record<string, string> = {
   cash: "Cash",
   other: "Other",
 };
-const allocationColors = ["#83e5b5", "#70a8f7", "#f1ba52", "#c19bf5", "#ed8f88"];
+// Ledger chart inks: bottle green, ink blue, ochre, plum, brick.
+const allocationColors = ["#1d6a4b", "#2c5c99", "#c18a2a", "#7a5aa8", "#b0412d"];
 const compactMoney = new Intl.NumberFormat("en-IE", {
   style: "currency", currency: "EUR", notation: "compact", maximumFractionDigits: 1,
 });
