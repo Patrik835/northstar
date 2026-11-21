@@ -4,12 +4,12 @@ import { Link } from "../../routing/Router";
 import { summarizePnl, type PnlSummary } from "../holdings/holdingMath";
 
 export const rangeLabels: Record<PortfolioPerformance["range"], string> = {
-  "1w": "this week",
-  "1m": "this month",
-  "3m": "in 3 months",
-  "6m": "in 6 months",
-  "1y": "this year",
-  "5y": "in 5 years",
+  "1w": "in the last 7 days",
+  "1m": "in the last 30 days",
+  "3m": "in the last 3 months",
+  "6m": "in the last 6 months",
+  "1y": "in the last 12 months",
+  "5y": "in the last 5 years",
   all: "since you started",
 };
 
@@ -75,7 +75,7 @@ export function OverviewMetrics({
             : periodStatus === "unavailable" || periodReturn == null
               ? "Not enough history for this period yet"
               : periodStatus === "available"
-                ? "Deposits and withdrawals excluded"
+                ? "Growth of your investments · deposits don't count"
                 : "Estimate · some history is missing"}
         </small>
       </article>
