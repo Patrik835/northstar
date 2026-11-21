@@ -2,6 +2,7 @@ import uuid
 from typing import Annotated, Protocol
 
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile, status
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.exc import IntegrityError
 
 from app.api.dependencies import CurrentUser, DbSession
@@ -18,7 +19,9 @@ from app.schemas.connection import (
     ConnectionGuide,
     ConnectionRead,
     FileImportGuide,
+    StatementDetection,
     StatementImportResult,
+    StatementMatchRead,
     SyncRunRead,
 )
 from app.services.broker_csv_import import (
@@ -34,6 +37,7 @@ from app.services.bybit_import import (
 )
 from app.services.connection_sync import ConnectionSyncService
 from app.services.connections import ConnectionService, InvalidConnectionCredentials
+from app.services.statement_detection import detect_statement
 from app.services.trading212_crypto_import import (
     MAX_CSV_BYTES,
     CryptoCsvImportError,
@@ -140,6 +144,34 @@ async def create_connection(
         await db.rollback()
         raise HTTPException(status.HTTP_409_CONFLICT, "This source is already connected") from exc
     return _connection_read(connection)
+
+
+MAX_DETECT_FILES = 10
+
+
+@router.post("/imports/detect", response_model=StatementDetection)
+async def detect_import_source(
+    user: CurrentUser,
+    files: Annotated[list[UploadFile], File(alias="file")],
+) -> StatementDetection:
+    """Suggest which broker a statement came from. Nothing is imported."""
+    if not files or len(files) > MAX_DETECT_FILES:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            f"Select between 1 and {MAX_DETECT_FILES} files",
+        )
+    limit = max(MAX_CSV_BYTES, MAX_XTB_FILE_BYTES, MAX_BROKER_CSV_BYTES)
+    uploads = [(file.filename or "", await file.read(limit + 1)) for file in files]
+    result = await run_in_threadpool(detect_statement, uploads)
+    return StatementDetection(
+        suggested=result.suggested,
+        matches=[
+            StatementMatchRead(
+                broker=match.broker, display_name=match.display_name, score=match.score
+            )
+            for match in result.matches
+        ],
+    )
 
 
 @router.post("/imports/trading212-crypto", response_model=StatementImportResult)

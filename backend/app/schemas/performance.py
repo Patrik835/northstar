@@ -4,7 +4,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-PerformanceRange = Literal["1w", "1m", "3m", "6m", "1y", "5y", "all"]
+# "ytd" runs from the last close of the previous year (31 December) to today.
+PerformanceRange = Literal["1w", "1m", "3m", "6m", "ytd", "1y", "5y", "all"]
 
 
 class PortfolioHistoryPoint(BaseModel):

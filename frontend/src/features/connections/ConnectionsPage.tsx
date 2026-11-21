@@ -10,6 +10,7 @@ import type {
 import { relativeTime } from "../../components/FreshnessStatus";
 import { brokerName } from "../../domain/brokers";
 import { Link } from "../../routing/Router";
+import { StatementDetector } from "./StatementDetector";
 import { SourceDialog, SourceMark } from "./SourceDialog";
 
 function statusLabel(connection: Connection, isCsv: boolean) {
@@ -129,6 +130,37 @@ export function ConnectionsPage() {
     }
   }
 
+  /** Upload statement files to one import source and report what was added. */
+  async function importStatement(guide: ConnectionGuide, form: FormData) {
+    const fileImport = guide.file_import;
+    if (!fileImport) throw new Error("This import source is not configured correctly.");
+    const result = await api<StatementImportResult>(fileImport.endpoint, {
+      method: "POST",
+      body: form,
+    });
+    setSuccess(true);
+    setMessage(
+      `${guide.display_name}: imported ${result.positions_imported} ${fileImport.holding_label}${
+        result.positions_imported === 1 ? "" : "s"
+      } and ${result.transactions_added} new transaction${
+        result.transactions_added === 1 ? "" : "s"
+      }.${result.duplicates_skipped ? ` ${result.duplicates_skipped} already imported ${
+        result.duplicates_skipped === 1 ? "entry was" : "entries were"
+      } skipped.` : ""}${
+        result.warnings.length
+          ? ` ${result.warnings[0]}${
+              result.warnings.length > 1
+                ? ` (${result.warnings.length - 1} more warning${
+                    result.warnings.length === 2 ? "" : "s"
+                  })`
+                : ""
+            }`
+          : ""
+      }`,
+    );
+    await refresh();
+  }
+
   async function submitCsv(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selected) return;
@@ -148,32 +180,8 @@ export function ConnectionsPage() {
     setModalMessage("");
     setBusyId(selected.broker);
     try {
-      const result = await api<StatementImportResult>(fileImport.endpoint, {
-        method: "POST",
-        body: form,
-      });
+      await importStatement(selected, form);
       closeModal();
-      setSuccess(true);
-      setMessage(
-        `Imported ${result.positions_imported} ${fileImport.holding_label}${
-          result.positions_imported === 1 ? "" : "s"
-        } and ${result.transactions_added} new transaction${
-          result.transactions_added === 1 ? "" : "s"
-        }.${result.duplicates_skipped ? ` ${result.duplicates_skipped} already imported ${
-          result.duplicates_skipped === 1 ? "entry was" : "entries were"
-        } skipped.` : ""}${
-          result.warnings.length
-            ? ` ${result.warnings[0]}${
-                result.warnings.length > 1
-                  ? ` (${result.warnings.length - 1} more warning${
-                      result.warnings.length === 2 ? "" : "s"
-                    })`
-                  : ""
-              }`
-            : ""
-        }`,
-      );
-      await refresh();
     } catch (reason) {
       // Keep the dialog open so the error is visible next to the file the user chose.
       setModalMessage(reason instanceof Error ? reason.message : "Could not import the selected file");
@@ -428,6 +436,12 @@ export function ConnectionsPage() {
                 </p>
               </div>
             </div>
+            {group === "csv" && (
+              <StatementDetector
+                guides={groupGuides}
+                onImport={importStatement}
+              />
+            )}
             <div className="source-catalog">
               {groupGuides.map((guide) => {
                 const current = connections.find((item) => item.broker === guide.broker);

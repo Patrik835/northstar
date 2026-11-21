@@ -9,6 +9,7 @@ export const rangeLabels: Record<PortfolioPerformance["range"], string> = {
   "1m": "in the last 30 days",
   "3m": "in the last 3 months",
   "6m": "in the last 6 months",
+  ytd: "this year",
   "1y": "in the last 12 months",
   "5y": "in the last 5 years",
   all: "since you started",

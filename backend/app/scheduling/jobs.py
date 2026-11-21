@@ -14,11 +14,12 @@ from app.integrations.market_data import (
     FxRateError,
 )
 from app.integrations.news.finnhub import FinnhubNewsProvider
-from app.models.enums import SyncTrigger
+from app.models.enums import Broker, SyncTrigger
 from app.repositories.connections import ConnectionRepository
 from app.services.connection_sync import ConnectionSyncService
 from app.services.content import MarketContentService, NotificationDigestService
 from app.services.historical_market_data import HistoricalMarketDataService
+from app.services.manual_positions import ManualPositionService
 from app.services.news_briefing import PortfolioNewsBriefingService
 
 logger = logging.getLogger(__name__)
@@ -35,6 +36,23 @@ async def sync_live_connections() -> None:
         for connection in connections:
             await service.sync(connection, trigger=SyncTrigger.SCHEDULED)
     logger.info("Scheduled live-connection sync completed for %d connections", len(connections))
+
+
+async def refresh_manual_prices() -> None:
+    """Re-price hand-added holdings so pages show current values without waiting."""
+    async with SessionFactory() as db:
+        user_ids = await ConnectionRepository(db).user_ids_with_broker(Broker.MANUAL)
+    failed = 0
+    for user_id in user_ids:
+        # One session per user, so one failure doesn't stop everyone else's update.
+        async with SessionFactory() as db:
+            try:
+                await ManualPositionService(db, CredentialCipher()).refresh(user_id)
+            except Exception:
+                await db.rollback()
+                failed += 1
+                logger.exception("Manual price refresh failed for one user")
+    logger.info("Manual holdings re-priced for %d users (%d failed)", len(user_ids), failed)
 
 
 async def sync_daily_connections() -> None:

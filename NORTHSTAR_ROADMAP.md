@@ -1,8 +1,10 @@
 # Northstar Investment OS — Requirements Refresh and Kanban Roadmap
 
-> Updated 2026-08-16: the stock/ETF/crypto foundation now includes Trading 212,
+> Updated 2026-11-21: the stock/ETF/crypto foundation now includes Trading 212,
 > Binance, Bybit EU, eToro, Interactive Brokers Flex, Trading 212 Crypto files, and native
-> XTB, Trade Republic, and Scalable Capital statement imports. Items
+> XTB, Trade Republic, and Scalable Capital statement imports. The simplicity pass added
+> zero-config setup, first-run onboarding, plain-language screens, automatic broker
+> recognition for uploads, background manual-holding prices, and loading states. Items
 > explicitly marked partial still need follow-up tickets.
 
 ## Summary
@@ -15,7 +17,9 @@
 - The POC has one consolidated portfolio per user; multiple portfolios and household sharing come later.
 - Broker data refreshes every 1–2 hours, supports manual refresh, and always displays freshness/error status.
 - EUR is the default display currency; original currencies remain visible.
-- Public signup remains, with email verification and stronger production security.
+- Public signup remains, with email verification (when email is configured) and stronger
+  production security. A fresh install needs no configuration: `make up` generates secrets
+  and the first account becomes the admin.
 - No trading, budgeting, or tax calculations in the initial product.
 - AI is added only after deterministic portfolio analytics are reliable.
 
@@ -28,6 +32,18 @@ This direction matches the strongest capabilities offered by mature trackers: ge
 - FastAPI, React, PostgreSQL, Alembic, Docker Compose, versioned APIs, layered backend, connector registry, and scheduler foundations.
 - Multi-user data ownership and user-scoped portfolio/connection repositories.
 - Public registration, email verification/resend, login/logout, opaque cookie sessions, password changes, account lockout, and admin-created users.
+- Zero-config first run: generated `.env` secrets, first account becomes an active admin,
+  email optional (`SMTP_HOST` empty turns it off), secure cookies and CORS derived from
+  `PUBLIC_WEB_URL`, and AI/news/benchmarks enabled automatically when their key is set.
+- Guided onboarding ("connect a source / import a file / add a holding"), plain-language
+  navigation (Overview, Holdings, Insights, Sources), consistent money formatting, and
+  Overview gain and period-change figures whose percentages are derivable from the shown
+  base (deposits never count as gain).
+- "Not sure which broker?" statement upload that dry-runs every importer, suggests the
+  broker only on unambiguous header markers, offers alternatives, and imports on confirm.
+- Manual holdings re-priced every 10 minutes in the background; page loads reuse recent
+  quotes, fetch stale ones in parallel, show cached numbers instantly on return, and use
+  spinner/skeleton loading states everywhere.
 - Argon2 password hashing and AES-256-GCM broker credential encryption.
 - Trading 212 credential validation, positions, cash, provider-reported unrealized P/L,
   recent activity, daily snapshot, scheduled/manual synchronization, and
@@ -68,8 +84,9 @@ This direction matches the strongest capabilities offered by mature trackers: ge
 - Connection setup guides, encrypted credential storage, masked hints, secure reconnect,
   and deletion.
 - Goals, risk tolerance, and time-horizon profile.
-- Dashboard current total plus source and asset allocation. Historical performance APIs
-  exist, but their overview presentation is deferred for a data-model and UX redesign.
+- Overview with current total, gain/loss, period change (default "This year", plus rolling
+  1W–5Y and all-time ranges), value/invested history chart, source and asset allocation,
+  and top movers.
 - Core database tables for positions, transactions, snapshots, news, recommendations, and chat history.
 - Finnhub held-ticker news/calendar ingestion, user read state, deterministic alerts,
   optional email digests, versioned portfolio context, cached AI reviews, and tenant-scoped
@@ -98,7 +115,6 @@ This direction matches the strongest capabilities offered by mature trackers: ge
 - eToro's aggregate portfolio, dedicated Real-account P&L, and both sides of documented
   trades are supported. Its Public API currently exposes no dividend ledger; broader
   product/history reconciliation remains.
-- Asset-type allocation is returned by the API but not displayed.
 - Performance is bounded by stored daily valuations and imported cash-flow coverage;
   historical non-EUR activity without a stored conversion is explicitly marked partial.
 - Finnhub dividend dates remain dependent on a paid endpoint; earnings and company-news
@@ -108,17 +124,11 @@ This direction matches the strongest capabilities offered by mature trackers: ge
 
 ### Still Missing From Existing Requirements
 
-- Transaction page and advanced holding detail analytics.
-- Historical value charts and date-range filtering.
-- Profit/loss, total return, dividends, fees, deposits, and withdrawal analytics.
-- Per-holding, asset-class, currency, sector, geography, and source allocation.
-- Benchmarks and per-source comparison.
-- Recent activity feed.
-- News and earnings calendar.
-- AI recommendations and portfolio-aware chat.
+- Dividend analytics and ETF look-through (deliberately removed from Analytics for now).
 - Stuck-run recovery and external production alert routing beyond the persisted operations
   view and Prometheus-compatible metrics.
-- Responsive/mobile-quality web UX and broader automated testing.
+- Broader automated testing against real broker exports (statement recognition is verified
+  against representative samples only).
 
 ## Requirements and Interface Changes
 

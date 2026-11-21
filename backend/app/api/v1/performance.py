@@ -1,10 +1,8 @@
-from typing import Literal
-
 from fastapi import APIRouter, Query
 
 from app.api.dependencies import CurrentUser, DbSession
 from app.repositories.portfolio import PortfolioRepository
-from app.schemas.performance import PortfolioPerformanceResponse
+from app.schemas.performance import PerformanceRange, PortfolioPerformanceResponse
 from app.services.performance import PerformanceService
 
 router = APIRouter()
@@ -14,9 +12,7 @@ router = APIRouter()
 async def performance(
     user: CurrentUser,
     db: DbSession,
-    selected_range: Literal[
-        "1w", "1m", "3m", "6m", "1y", "5y", "all"
-    ] = Query(default="1y", alias="range"),
+    selected_range: PerformanceRange = Query(default="1y", alias="range"),  # noqa: B008
 ) -> PortfolioPerformanceResponse:
     return await PerformanceService(PortfolioRepository(db)).portfolio(
         user.id, selected_range

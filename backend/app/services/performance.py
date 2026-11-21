@@ -35,6 +35,7 @@ SAMPLE_TARGETS: dict[PerformanceRange, int] = {
     "1m": 31,
     "3m": 13,
     "6m": 26,
+    "ytd": 52,
     "1y": 52,
     "5y": 60,
     "all": 72,
@@ -44,11 +45,21 @@ SAMPLING_LABELS: dict[PerformanceRange, Sampling] = {
     "1m": "daily",
     "3m": "weekly_average",
     "6m": "weekly_average",
+    "ytd": "weekly_average",
     "1y": "weekly_average",
     "5y": "monthly_average",
     "all": "adaptive_average",
 }
 CENT = Decimal("0.01")
+
+
+def _range_start(selected_range: PerformanceRange, end_date: date) -> date | None:
+    if selected_range == "all":
+        return None
+    if selected_range == "ytd":
+        # Measure from the previous year's last close, so 1 January's moves count.
+        return date(end_date.year - 1, 12, 31)
+    return end_date - timedelta(days=RANGE_DAYS[selected_range])
 
 
 def _round_money(value: Decimal) -> Decimal:
@@ -350,11 +361,7 @@ class PerformanceService:
             connection_rows[0].snapshot.snapshot_date for connection_rows in by_connection.values()
         )
         end_date = max(row.snapshot.snapshot_date for row in snapshots)
-        requested_start = (
-            None
-            if selected_range == "all"
-            else end_date - timedelta(days=RANGE_DAYS[selected_range])
-        )
+        requested_start = _range_start(selected_range, end_date)
         start_date = (
             coverage_start if requested_start is None else max(coverage_start, requested_start)
         )

@@ -20,7 +20,9 @@ from app.schemas.portfolio import ManualPositionRead, ManualPositionWrite
 from app.services.instrument_resolver import InstrumentResolver
 
 # Page loads reuse market quotes this recent instead of waiting on the price providers.
-QUOTE_MAX_AGE = timedelta(minutes=5)
+# The scheduler re-quotes more often than this, so pages normally never wait.
+QUOTE_MAX_AGE = timedelta(minutes=15)
+QUOTE_REFRESH_MINUTES = 10
 
 
 class ManualPositionError(ValueError):

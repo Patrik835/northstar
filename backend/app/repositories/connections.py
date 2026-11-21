@@ -49,6 +49,12 @@ class ConnectionRepository:
         )
         return list(result)
 
+    async def user_ids_with_broker(self, broker: Broker) -> list[uuid.UUID]:
+        result = await self.db.scalars(
+            select(BrokerConnection.user_id).where(BrokerConnection.broker == broker).distinct()
+        )
+        return list(result)
+
     async def syncable_etoro(self) -> list[BrokerConnection]:
         result = await self.db.scalars(
             select(BrokerConnection).where(

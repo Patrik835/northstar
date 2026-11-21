@@ -10,11 +10,13 @@ from app.scheduling.jobs import (
     deliver_notification_digests,
     refresh_ecb_rates,
     refresh_historical_prices,
+    refresh_manual_prices,
     sync_daily_connections,
     sync_live_connections,
     sync_monthly_etoro_snapshots,
     sync_portfolio_news,
 )
+from app.services.manual_positions import QUOTE_REFRESH_MINUTES
 from app.services.operations import monitored_job
 
 
@@ -24,6 +26,13 @@ def build_scheduler(settings: Settings) -> AsyncIOScheduler:
         monitored_job("live-portfolio-sync", sync_live_connections),
         IntervalTrigger(minutes=settings.portfolio_sync_minutes),
         id="live-portfolio-sync",
+        max_instances=1,
+        coalesce=True,
+    )
+    scheduler.add_job(
+        monitored_job("manual-price-refresh", refresh_manual_prices),
+        IntervalTrigger(minutes=QUOTE_REFRESH_MINUTES),
+        id="manual-price-refresh",
         max_instances=1,
         coalesce=True,
     )

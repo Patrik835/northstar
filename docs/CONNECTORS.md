@@ -46,7 +46,12 @@ underlying data is only refreshed once per day.
 3. Add its authenticated upload route.
 4. Add one `ImportSourceDefinition` in `backend/app/integrations/import_sources.py`.
    This supplies the source guide, accepted file types, multi-file behavior, upload copy,
-   and endpoint to the generic Connections UI.
+   and endpoint to the generic Connections UI. Also give it a `recognize` function (a
+   dry-run parse that returns the share of rows understood and never writes) and
+   `header_markers` (normalized header cells only this provider's exports use). The
+   "Not sure which broker?" upload uses these to suggest a broker; without distinctive
+   markers the source is only offered as an alternative. Add a case to
+   `tests/test_statement_detection.py`.
 5. Test native files, malformed/oversized files, repeat and overlapping imports, atomic
    rollback, tenant ownership, P/L, valuation provenance, and history-only behavior.
 

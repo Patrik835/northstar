@@ -16,6 +16,7 @@ const money = new Intl.NumberFormat("en-IE", {
 const percent = new Intl.NumberFormat("en-IE", { maximumFractionDigits: 2 });
 const rangeOptions: Array<{ value: PortfolioPerformance["range"]; label: string }> = [
   { value: "3m", label: "3M" }, { value: "6m", label: "6M" },
+  { value: "ytd", label: "This year" },
   { value: "1y", label: "1Y" }, { value: "5y", label: "5Y" },
   { value: "all", label: "All" },
 ];
@@ -24,6 +25,7 @@ const rangeDescriptions: Record<PortfolioPerformance["range"], string> = {
   "1m": "Last month",
   "3m": "Last 3 months",
   "6m": "Last 6 months",
+  ytd: "This year so far",
   "1y": "Last 1 year",
   "5y": "Last 5 years",
   all: "All available history",

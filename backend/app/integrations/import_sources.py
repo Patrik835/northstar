@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from app.models.enums import Broker
@@ -22,6 +23,46 @@ class ImportSourceDefinition:
     help_text: str
     empty_file_message: str
     holding_label: str
+    # Dry-run parse used to recognise an uploaded file. Returns the share of rows (0–1) this
+    # source understood; raises when the file is not this source's format. Never writes.
+    recognize: Callable[[list[tuple[str, bytes]]], float]
+    # Header cells (lowercase, letters and digits only) that only this source's exports use.
+    # Lets detection tell apart formats the lenient parsers would all accept.
+    header_markers: frozenset[str] = frozenset()
+
+
+def _share(recognized: int, rows_read: int) -> float:
+    return min(recognized / rows_read, 1.0) if rows_read else 0.0
+
+
+def _recognize_trading212_crypto(uploads: list[tuple[str, bytes]]) -> float:
+    from app.services.trading212_crypto_import import Trading212CryptoCsvParser
+
+    (_, content), = uploads
+    parsed = Trading212CryptoCsvParser().parse(content)
+    return _share(len(parsed.transactions), parsed.rows_read)
+
+
+def _recognize_xtb(uploads: list[tuple[str, bytes]]) -> float:
+    from app.services.xtb_import import XtbStatementParser, XtbUpload
+
+    recognized = rows = 0
+    for filename, content in uploads:
+        parsed = XtbStatementParser().parse(XtbUpload(filename=filename, content=content))
+        recognized += len(parsed.positions) + len(parsed.transactions)
+        rows += parsed.rows_read
+    return _share(recognized, rows)
+
+
+def _broker_csv_recognizer(broker: Broker) -> Callable[[list[tuple[str, bytes]]], float]:
+    def recognize(uploads: list[tuple[str, bytes]]) -> float:
+        from app.services.broker_csv_import import BrokerCsvParser
+
+        (_, content), = uploads
+        parsed = BrokerCsvParser().parse(broker, content)
+        return _share(len(parsed.transactions), parsed.rows_read)
+
+    return recognize
 
 
 IMPORT_SOURCES = (
@@ -56,6 +97,8 @@ IMPORT_SOURCES = (
         help_text="CSV only · maximum 10 MB · overlapping exports are safe",
         empty_file_message="Choose the Trading 212 Crypto CSV export first.",
         holding_label="crypto holding",
+        recognize=_recognize_trading212_crypto,
+        header_markers=frozenset({"coin"}),
     ),
     ImportSourceDefinition(
         broker=Broker.XTB,
@@ -92,6 +135,11 @@ IMPORT_SOURCES = (
         ),
         empty_file_message="Choose at least one XTB CSV or Excel report first.",
         holding_label="holding",
+        recognize=_recognize_xtb,
+        header_markers=frozenset({
+            "position", "positionid", "openprice", "opentime",
+            "openpositions", "closedpositions", "cashoperations",
+        }),
     ),
     ImportSourceDefinition(
         broker=Broker.TRADE_REPUBLIC,
@@ -122,6 +170,8 @@ IMPORT_SOURCES = (
         help_text="Native CSV · full history recommended · overlapping exports are safe",
         empty_file_message="Choose the Trade Republic transaction CSV first.",
         holding_label="estimated holding",
+        recognize=_broker_csv_recognizer(Broker.TRADE_REPUBLIC),
+        header_markers=frozenset({"accounttype"}),
     ),
     ImportSourceDefinition(
         broker=Broker.SCALABLE_CAPITAL,
@@ -152,5 +202,7 @@ IMPORT_SOURCES = (
         help_text="Native CSV · full history recommended · overlapping exports are safe",
         empty_file_message="Choose the Scalable Capital transaction CSV first.",
         holding_label="estimated holding",
+        recognize=_broker_csv_recognizer(Broker.SCALABLE_CAPITAL),
+        header_markers=frozenset({"assettype", "reference"}),
     ),
 )

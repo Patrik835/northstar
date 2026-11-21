@@ -373,3 +373,12 @@ def test_simple_return_ignores_withdrawals_in_base() -> None:
         "5.00"
     )
     assert _simple_return_percentage(Decimal("5"), Decimal("0"), Decimal("0")) is None
+
+
+def test_year_to_date_starts_at_previous_year_close() -> None:
+    from app.services.performance import _range_start
+
+    assert _range_start("ytd", date(2026, 11, 21)) == date(2025, 12, 31)
+    assert _range_start("ytd", date(2026, 1, 1)) == date(2025, 12, 31)
+    assert _range_start("1y", date(2026, 11, 21)) == date(2025, 11, 21)
+    assert _range_start("all", date(2026, 11, 21)) is None

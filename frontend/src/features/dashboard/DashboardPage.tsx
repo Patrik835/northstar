@@ -39,6 +39,7 @@ const rangeOptions: Array<{ value: PortfolioPerformance["range"]; label: string 
   { value: "1m", label: "1M" },
   { value: "3m", label: "3M" },
   { value: "6m", label: "6M" },
+  { value: "ytd", label: "This year" },
   { value: "1y", label: "1Y" },
   { value: "5y", label: "5Y" },
   { value: "all", label: "All" },
@@ -237,9 +238,9 @@ function AssetAllocation({ items }: { items: AllocationItem[] }) {
 export function DashboardPage() {
   const [summary, setSummary] = useState(() => cachedApi<DashboardSummary>("/dashboard/summary"));
   const [error, setError] = useState("");
-  const [selectedRange, setSelectedRange] = useState<PortfolioPerformance["range"]>("1y");
+  const [selectedRange, setSelectedRange] = useState<PortfolioPerformance["range"]>("ytd");
   const [holdings, setHoldings] = useState(() => cachedApi<HoldingsResponse>("/holdings"));
-  const [performance, setPerformance] = useState(() => cachedApi<PortfolioPerformance>("/performance?range=1y"));
+  const [performance, setPerformance] = useState(() => cachedApi<PortfolioPerformance>("/performance?range=ytd"));
   const [performanceError, setPerformanceError] = useState("");
   const [performanceLoading, setPerformanceLoading] = useState(true);
   const [content, setContent] = useState(() =>

@@ -75,6 +75,18 @@ class ConnectionGuide(BaseModel):
     file_import: FileImportGuide | None = None
 
 
+class StatementMatchRead(BaseModel):
+    broker: Broker
+    display_name: str
+    score: float
+
+
+class StatementDetection(BaseModel):
+    # Only set when the file clearly comes from one broker; otherwise the user picks.
+    suggested: Broker | None = None
+    matches: list[StatementMatchRead]
+
+
 class StatementImportResult(BaseModel):
     connection: ConnectionRead
     rows_read: int

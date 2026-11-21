@@ -169,6 +169,12 @@ export type ConnectionGuide = {
   } | null;
 };
 
+export type StatementDetection = {
+  /** Set only when the file clearly comes from one broker. */
+  suggested: Broker | null;
+  matches: Array<{ broker: Broker; display_name: string; score: number }>;
+};
+
 export type StatementImportResult = {
   connection: Connection;
   rows_read: number;
@@ -371,7 +377,7 @@ export type ReturnMetric = {
 };
 
 export type PortfolioPerformance = {
-  range: "1w" | "1m" | "3m" | "6m" | "1y" | "5y" | "all";
+  range: "1w" | "1m" | "3m" | "6m" | "ytd" | "1y" | "5y" | "all";
   currency: "EUR";
   start_date: string | null;
   end_date: string | null;

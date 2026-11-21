@@ -861,3 +861,13 @@ details.analytics-target-panel:not([open]) > summary { margin-bottom: 0; }
 .portfolio-history-panel > :not(.portfolio-history-heading) { transition: opacity .2s; }
 .portfolio-history-panel.is-updating > :not(.portfolio-history-heading) { opacity: .45; }
 
+
+/* "Not sure which broker?" statement picker on Sources. */
+.statement-detector { display: grid; gap: .8rem; margin: 0 0 1.2rem; }
+.statement-detector-drop { min-height: 120px; }
+.statement-detector-drop strong { overflow-wrap: anywhere; }
+.statement-detector-result { padding: 1rem 1.2rem; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+.statement-detector-result p { margin: 0; }
+.statement-detector-result .button-row { justify-content: flex-start; margin-top: .8rem; flex-wrap: wrap; }
+.statement-detector-alternatives { margin-top: .7rem !important; font-size: .85rem; }
+.statement-detector-choices { gap: .7rem; }
