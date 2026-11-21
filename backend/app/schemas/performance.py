@@ -26,6 +26,11 @@ class ReturnAttribution(BaseModel):
     income_eur: Decimal
     fees_eur: Decimal
     currency_movement_eur: Decimal | None
+    # Value at the start of the period and money added (deposits − withdrawals) during it.
+    start_value_eur: Decimal | None = None
+    net_contributions_eur: Decimal | None = None
+    # total_return_eur as a share of start value plus money added, so € and % agree.
+    simple_return_percentage: Decimal | None = None
     status: Literal["available", "estimated", "partial", "unavailable"]
     message: str | None = None
 

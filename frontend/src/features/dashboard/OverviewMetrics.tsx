@@ -36,10 +36,15 @@ export function OverviewMetrics({
 }) {
   const pnl = holdings ? summarizePnl(holdings.holdings.flatMap((holding) => holding.sources)) : null;
   const partial = pnl !== null && pnl.sourceCount < pnl.totalSources;
-  const periodReturn = performance?.attribution.total_return_eur;
-  // Time-weighted: the period's own growth, unaffected by deposits (XIRR is annualized).
-  const periodPercent = performance?.time_weighted_return.percentage;
-  const periodStatus = performance?.attribution.status;
+  const attribution = performance?.attribution;
+  const periodReturn = attribution?.total_return_eur;
+  // Simple return: the € change divided by the money at work (start value + money added),
+  // so the € and % on this card always agree.
+  const periodPercent = attribution?.simple_return_percentage;
+  const startValue = Number(attribution?.start_value_eur ?? 0);
+  const added = Number(attribution?.net_contributions_eur ?? 0);
+  const hasPeriod = periodReturn != null && attribution?.status !== "unavailable";
+  const missingHistory = (performance?.missing_fx_transaction_count ?? 0) > 0;
 
   return (
     <section className="metric-grid">
@@ -57,13 +62,13 @@ export function OverviewMetrics({
             : !pnl
               ? "Add what you paid to see your gain"
               : partial
-                ? `Based on ${pnl.sourceCount} of ${pnl.totalSources} positions with a known price paid`
-                : "Compared with what you paid"}
+                ? `On ${formatEur(pnl.costBasis)} paid for ${pnl.sourceCount} of ${pnl.totalSources} positions (the rest have no known price)`
+                : `On ${formatEur(pnl.costBasis)} you paid`}
         </small>
       </article>
       <article className="metric">
         <span>Change {rangeLabels[range]}</span>
-        {periodReturn != null && periodStatus !== "unavailable" ? (
+        {hasPeriod ? (
           <ChangeValue
             value={Number(periodReturn)}
             percentage={periodPercent != null ? Number(periodPercent) : null}
@@ -72,11 +77,9 @@ export function OverviewMetrics({
         <small>
           {!performance
             ? "Loading…"
-            : periodStatus === "unavailable" || periodReturn == null
+            : !hasPeriod
               ? "Not enough history for this period yet"
-              : periodStatus === "available"
-                ? "Growth of your investments · deposits don't count"
-                : "Estimate · some history is missing"}
+              : `On ${formatEur(startValue)} at the start${added > 0 ? ` + ${formatEur(added)} added` : ""} · deposits don't count as gain${missingHistory ? " · estimate, some history is missing" : ""}`}
         </small>
       </article>
     </section>

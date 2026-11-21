@@ -69,6 +69,8 @@ export function valuationLabel(source: HoldingSource) {
 
 export type PnlSummary = {
   value: number;
+  /** What was paid for the positions this gain/loss covers; percentage = value / costBasis. */
+  costBasis: number;
   percentage: number | null;
   sourceCount: number;
   totalSources: number;
@@ -109,6 +111,7 @@ export function summarizePnl(sources: HoldingSource[]): PnlSummary | null {
   const costBasis = coveredValue - value;
   return {
     value,
+    costBasis,
     percentage: costBasis > 0 ? (value * 100) / costBasis : null,
     sourceCount: available.length,
     totalSources: sources.length,

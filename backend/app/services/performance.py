@@ -55,6 +55,19 @@ def _round_money(value: Decimal) -> Decimal:
     return value.quantize(CENT, rounding=ROUND_HALF_UP)
 
 
+def _simple_return_percentage(
+    total_return: Decimal, start_value: Decimal, net_contributions: Decimal
+) -> Decimal | None:
+    """Gain as a % of the money at work: start value plus net money added.
+
+    Withdrawals are not subtracted from the base, so taking money out never inflates the %.
+    """
+    base = start_value + max(net_contributions, Decimal(0))
+    if base <= 0:
+        return None
+    return (total_return * 100 / base).quantize(Decimal("0.01"))
+
+
 def _xirr(cash_flows: list[tuple[date, Decimal]]) -> Decimal | None:
     if len(cash_flows) < 2:
         return None
@@ -561,6 +574,11 @@ class PerformanceService:
                 income_eur=_round_money(period_income),
                 fees_eur=_round_money(period_fees),
                 currency_movement_eur=_round_money(currency_movement),
+                start_value_eur=_round_money(first_point.total_value_eur),
+                net_contributions_eur=_round_money(net_contributions),
+                simple_return_percentage=_simple_return_percentage(
+                    total_return, first_point.total_value_eur, net_contributions
+                ),
                 status="partial" if missing_fx else "estimated",
                 message=(
                     metric_message

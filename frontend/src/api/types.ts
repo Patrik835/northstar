@@ -386,6 +386,9 @@ export type PortfolioPerformance = {
     income_eur: string;
     fees_eur: string;
     currency_movement_eur: string | null;
+    start_value_eur: string | null;
+    net_contributions_eur: string | null;
+    simple_return_percentage: string | null;
     status: "available" | "estimated" | "partial" | "unavailable";
     message: string | null;
   };

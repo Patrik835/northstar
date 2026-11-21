@@ -306,6 +306,10 @@ async def test_performance_builds_history_returns_and_attribution() -> None:
     assert result.attribution.total_return_eur == Decimal("20.00")
     assert result.attribution.income_eur == Decimal("5.00")
     assert result.attribution.capital_gain_eur == Decimal("15.00")
+    # € and % agree: €20 gain on €1,000 start + €100 deposited = 1.82 %.
+    assert result.attribution.start_value_eur == Decimal("1000.00")
+    assert result.attribution.net_contributions_eur == Decimal("100.00")
+    assert result.attribution.simple_return_percentage == Decimal("1.82")
 
 
 @pytest.mark.asyncio
@@ -360,3 +364,12 @@ async def test_history_starts_with_complete_source_coverage_and_estimates_openin
         Decimal("1500.00"),
     ]
     assert any("Opening capital is estimated" in notice for notice in result.notices)
+
+
+def test_simple_return_ignores_withdrawals_in_base() -> None:
+    from app.services.performance import _simple_return_percentage
+
+    assert _simple_return_percentage(Decimal("50"), Decimal("1000"), Decimal("-400")) == Decimal(
+        "5.00"
+    )
+    assert _simple_return_percentage(Decimal("5"), Decimal("0"), Decimal("0")) is None
