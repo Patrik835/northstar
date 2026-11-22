@@ -3,8 +3,20 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#0c1713" />
+    <meta name="theme-color" content="#f4efe4" />
     <title>Northstar — Investment Dashboard</title>
+    <script>
+      // Apply the saved (or device) theme before the first paint; src/lib/theme.ts takes over after.
+      (function () {
+        var theme = null;
+        try { theme = localStorage.getItem("northstar-theme"); } catch (e) {}
+        if (theme !== "light" && theme !== "dark") {
+          theme = window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        }
+        document.documentElement.dataset.theme = theme;
+        if (theme === "dark") document.querySelector('meta[name="theme-color"]').content = "#151713";
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

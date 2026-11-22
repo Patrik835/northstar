@@ -87,7 +87,9 @@ Postgres, alembic downgrade/upgrade round-trip, `pip-audit` and `npm audit`.
   Keep pages small: put sub-components and pure helpers in sibling files (see
   `holdings/HoldingDetails.tsx`, `holdings/holdingMath.ts`, `connections/SourceDialog.tsx`).
   Use the colour tokens defined in `global.css` `:root` (`--ink`, `--muted`, `--accent`,
-  `--negative`, …), never raw hex values, so the theme stays in one place.
+  `--negative`, …), never raw hex values, so the theme stays in one place. Every token also
+  needs a value in the `:root[data-theme="dark"]` block (charts use `--chart-1…5`); the
+  sidebar toggle and `src/lib/theme.ts` set `data-theme`, defaulting to the device setting.
   Empty states must point to the next action. `/holdings?add=1` and `/connections?type=api|csv`
   are onboarding deep links.
 - **Tests**: every bug fix gets a regression test. Connectors get mocked contract tests. Use

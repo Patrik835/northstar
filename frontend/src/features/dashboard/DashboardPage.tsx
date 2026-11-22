@@ -27,8 +27,8 @@ const assetLabels: Record<string, string> = {
   cash: "Cash",
   other: "Other",
 };
-// Ledger chart inks: bottle green, ink blue, ochre, plum, brick.
-const allocationColors = ["#1d6a4b", "#2c5c99", "#c18a2a", "#7a5aa8", "#b0412d"];
+// Chart inks come from the theme (--chart-1…5 in global.css), so they suit light and dark.
+const allocationColors = [1, 2, 3, 4, 5].map((n) => `var(--chart-${n})`);
 const compactMoney = new Intl.NumberFormat("en-IE", {
   style: "currency", currency: "EUR", notation: "compact", maximumFractionDigits: 1,
 });
@@ -207,7 +207,7 @@ function SourceDonut({ items, total }: { items: AllocationItem[]; total: number 
                 key={item.label}
                 className="donut-segment"
                 cx="70" cy="70" r="54" pathLength="100"
-                stroke={allocationColors[index % allocationColors.length]}
+                style={{ stroke: allocationColors[index % allocationColors.length] }}
                 strokeDasharray={`${Math.max(percentage - 0.6, 0)} ${100 - Math.max(percentage - 0.6, 0)}`}
                 strokeDashoffset={-start}
               />

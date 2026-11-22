@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { useFeatures } from "../api/features";
 import { FreshnessStatus } from "../components/FreshnessStatus";
 import { PageTabs, type PageTab } from "../components/PageTabs";
+import { ThemeToggle } from "../components/ThemeToggle";
 import { useAuth } from "../features/auth/AuthContext";
 import { Link, useRouter } from "../routing/Router";
 
@@ -48,7 +49,11 @@ export function AppLayout({ children }: { children: ReactNode }) {
           {user?.is_admin && <Link to="/admin" active={path === "/admin"}>Admin</Link>}
         </nav>
         <FreshnessStatus />
-        <div className="user-block"><span>{user?.username}</span><button className="text-button" onClick={() => void logout()}>Sign out</button></div>
+        <div className="user-block">
+          <span>{user?.username}</span>
+          <ThemeToggle />
+          <button className="text-button" onClick={() => void logout()}>Sign out</button>
+        </div>
       </aside>
       <main className="content" id="main-content" tabIndex={-1}>
         {current?.tabs && <PageTabs tabs={current.tabs} label={`${current.label} sections`} />}

@@ -22,6 +22,26 @@
   --warning: #8f620d; --warning-bg: #f7edd4; --warning-soft-ink: #75500a;
   --info: #2c5c99; --info-bg: #e5edf7;
   --violet: #66479f; --violet-bg: #eee7f7; --violet-soft-ink: #533a86;
+  /* chart inks: bottle green, ink blue, ochre, plum, brick */
+  --chart-1: #1d6a4b; --chart-2: #2c5c99; --chart-3: #c18a2a; --chart-4: #7a5aa8; --chart-5: #b0412d;
+}
+/* Ledger Night: the same ledger after dark — paper colour becomes the ink. index.html and
+   src/lib/theme.ts set data-theme from the user's choice, or the device setting until they pick. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #151713; --bg-sunken: #10120f; --surface: #1d201b; --panel: #1d201b;
+  --surface-raised: #242821; --surface-hover: #2b3028; --glass: rgba(24, 27, 22, .92);
+  --line: #30352d; --line-strong: #454b40;
+  --scrim: rgba(0, 0, 0, .6); --scrim-soft: rgba(16, 18, 15, .45); --shadow: rgba(0, 0, 0, .35);
+  --ink: #ece6d8; --ink-soft: #d6cfbf; --muted: #a9a594; --muted-2: #9d9988;
+  --accent-soft-ink: #ece6d8;
+  --accent: #6cc59c; --accent-line: #2f5f49; --accent-tint: rgba(108, 197, 156, .12);
+  --accent-dark: #1b3328; --on-accent: #10150f;
+  --negative: #f0917b; --negative-bg: #3a201a; --negative-line: #6e382b; --negative-soft-ink: #f4ab99;
+  --warning: #e2b75c; --warning-bg: #362c16; --warning-soft-ink: #ecc87d;
+  --info: #8db6e9; --info-bg: #1a2839;
+  --violet: #b9a0e4; --violet-bg: #29213b; --violet-soft-ink: #cbb8ec;
+  --chart-1: #6cc59c; --chart-2: #8db6e9; --chart-3: #e2b75c; --chart-4: #b9a0e4; --chart-5: #f0917b;
 }
 * { box-sizing: border-box; }
 *:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
@@ -908,3 +928,10 @@ h3 { font-family: "DM Sans", sans-serif; font-weight: 600; }
 .holding-entry.open .holding-row:hover { background: transparent; }
 .holding-summary-grid > div, .holding-more, .holding-activity-preview { background: var(--surface); }
 .login-copy h1 { margin-bottom: 1.4rem; line-height: 1; }
+/* Light/dark switch in the sidebar. */
+.user-block { align-items: center; gap: .6rem; }
+.user-block > span { margin-right: auto; overflow: hidden; text-overflow: ellipsis; }
+.theme-toggle { width: 32px; height: 32px; flex: 0 0 auto; display: grid; place-items: center; padding: 0; border: 1px solid var(--line); border-radius: 50%; color: var(--muted); background: transparent; }
+.theme-toggle:hover { color: var(--ink); border-color: var(--line-strong); background: var(--surface-raised); }
+.theme-toggle svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+@media (max-width: 800px) { .user-block > span { margin-right: 0; } }
